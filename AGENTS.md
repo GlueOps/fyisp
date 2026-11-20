@@ -109,3 +109,5 @@ Settled choices; reviewers shouldn't re-raise them.
 - **`api/probes` has no gaps.** `api/panel`'s per-bucket `gap` already says when fyisp wasn't measuring.
 - **`api/probes` caps at the slowest 5000**, not the first, so a capped answer still shows the worst probes; `complete_above_ms` says what is complete.
 - **"Probes over X ms"** (Details charts) shows only when one target is shown, and only for the panel's main kind. The threshold is typed, not dragged (dragging the plot zooms), starts at the verdict engine's spike rule (3× normal, at least +50 ms) and is kept per target and kind in localStorage, not the URL. The min–max band stays.
+- **GlueOps org, Apache-2.0** (Copyright GlueOps, LLC), module `github.com/glueops/fyisp` (lowercase, like other GlueOps Go modules). Tags up to v0.14.0 keep their earlier module path and MIT license.
+- **`dbfixture` can't regenerate the v0.14.0 fixture**, because that tag has the earlier module path. It works again from the next release; don't add a shim.
