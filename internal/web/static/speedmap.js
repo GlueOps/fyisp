@@ -146,8 +146,8 @@ function handoffWords(ho) {
 }
 
 export class SpeedMap {
-  /** @param {SpeedHost} host */
-  constructor(host) {
+  /** @param {SpeedHost} host @param {HTMLElement} over the section between the finding and the heatmap (speed over time) */
+  constructor(host, over) {
     this.host = host;
     /** @type {SpeedSummary|null} */
     this.d = null;
@@ -176,7 +176,7 @@ export class SpeedMap {
     this.mapEl = h('section', { class: 'sp-map', 'aria-labelledby': 'sp-map-h' });
     this.sumEl = h('section', { class: 'sp-sum', 'aria-labelledby': 'sp-sum-h' });
     this.rowEl = h('section', { class: 'sp-row', 'aria-labelledby': 'sp-row-h' });
-    this.el = h('div', { class: 'sp-evidence' }, this.say, this.foundEl, this.mapEl, this.rowEl, this.sumEl);
+    this.el = h('div', { class: 'sp-evidence' }, this.say, this.foundEl, over, this.mapEl, this.rowEl, this.sumEl);
     window.matchMedia('(max-width: 999.98px)').addEventListener('change', () => this.renderMap());
   }
 

@@ -10,6 +10,7 @@
 
 import { h, fetchShared, fmtMbps, apiWrite, dialog, tzParam, clock } from './core.js';
 import { SpeedMap } from './speedmap.js';
+import { SpeedTime, filterPick } from './speedtime.js';
 import { SpeedQueue } from './speedqueue.js';
 import { askPause, pauseWords, activePause } from './speedpause.js';
 
@@ -88,7 +89,8 @@ export class Speed {
     });
     this.progEl = h('div', { class: 'sp-prog', hidden: true });
     this.bodyEl = h('div', { class: 'sp-body' });
-    this.map = new SpeedMap(host);
+    this.time = new SpeedTime();
+    this.map = new SpeedMap(host, this.time.el);
     this.el = h('section', { id: 'speed', class: 'speed', 'aria-label': 'Speed tests', hidden: true },
       this.say, this.headEl, this.progEl, this.queue.el, this.bodyEl, this.map.el, this.queue.sweepEl);
   }
@@ -146,6 +148,8 @@ export class Speed {
   }
 
   render() { this.renderAll(); }
+
+  themeChanged() { this.time.themeChanged(); }
 
   renderAll() {
     this.renderHead();
@@ -351,18 +355,7 @@ export class Speed {
     }
     const none = h('p', { class: 'muted', text: 'No server matches.', hidden: true });
     search.addEventListener('input', () => {
-      const q = search.value.trim().toLowerCase();
-      let any = false;
-      for (const g of /** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll('.sp-pick-group'))) {
-        let shown = 0;
-        for (const r of /** @type {NodeListOf<HTMLElement>} */ (g.querySelectorAll('.sp-pick-row'))) {
-          r.hidden = !!q && !(r.dataset.find || '').includes(q);
-          if (!r.hidden) shown++;
-        }
-        g.hidden = !shown;
-        any = any || shown > 0;
-      }
-      none.hidden = any;
+      none.hidden = filterPick(list, search.value);
       // Keep the choice on a visible row.
       const sel = /** @type {HTMLInputElement|null} */ (list.querySelector('input:checked'));
       if (!sel || /** @type {HTMLElement} */ (sel.closest('.sp-pick-row')).hidden) {
@@ -396,7 +389,7 @@ export class Speed {
     const d = this.d;
     const evidence = !!d && !!d.latest && this.panel !== 'setup';
     this.map.el.hidden = !evidence;
-    if (evidence) this.map.render(/** @type {SpeedSummary} */ (d));
+    if (evidence) { this.map.render(/** @type {SpeedSummary} */ (d)); this.time.refresh(/** @type {SpeedSummary} */ (d)); }
     if (!d || (!d.enabled && !d.latest) || this.panel === 'setup') { this.bodyEl.replaceChildren(); this.bodyEl.hidden = true; return; }
     this.bodyEl.hidden = false;
     const t = d.latest;

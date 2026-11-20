@@ -68,6 +68,10 @@ Please don't run modes more often than every 15 minutes against these servers. F
 
 Details → Speed shows:
 - what the slowdown points to: your provider's network (every region and provider dips together, checked against your provider's first router), the link to one provider, one long-distance route, or one server's own busy hours, with the evidence and how sure it is;
+- **speed over time**: download and upload in Mbit/s, over the last 24 hours up to 90 days (its own range, beside the heatmap's 7 or 30 days). Drag across it to zoom in; a double click, or the *Zoomed* button, zooms out.
+  - By default one line, *your faster tests*: the speed that nine in ten of each point's scheduled tests stayed under, so mostly the nearest servers, which follows your line's own speed. It is not your plan's speed, and it reads higher than Home's usual speed, which counts every test.
+  - The *Tests to:* button draws up to 8 regions or servers instead, each as its own line (the typical test of each point). Far servers are slower: that is distance, not a fault. A line is dotted where most tests were still speeding up when they ended ("at least").
+  - A point is long enough to hold a few tests to compare: 2 hours or more for the default line, usually 6 for a region and 12 for a server (an hour for one tested every 15 minutes), and a day over 60 days. The line breaks where no test ran. An × marks tests that ran and mostly didn't finish. Test now and *Test every server* results are not in these lines;
 - a heatmap of regions × hour of day by score, with how many tests and providers back each hour;
 - a time series per region and server, a table, and compare;
 - a note when a region mostly used its fallback in the last day.

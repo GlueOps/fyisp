@@ -148,6 +148,7 @@ function themeChanged() {
   if (inv && state.inv) { inv.sig = ''; inv.render(); }
   calls?.render();
   home?.themeChanged();
+  speed?.themeChanged();
 }
 
 // ---------- colours ----------

@@ -15,8 +15,8 @@ import (
 
 // newFakeSpeed is the real speed test scheduler over a fake network and an
 // in-memory store with synthetic history in mode regions: the default
-// regions once an hour (spread over the hour, providers rotated) for the backfill
-// range (2 to 30 days). Speed falls with distance (Europe fastest), every
+// regions once an hour (spread over the hour, providers rotated) for bf
+// (-speed-history, else the backfill; 2 to 90 days). Speed falls with distance (Europe fastest), every
 // region is ~40% slower 19-23 local time with every provider, first
 // choices are busy now and then (a same-metro fallback, or busy), and the
 // latency under load and the connection are stored. Queued tests (Test
@@ -31,7 +31,7 @@ func newFakeSpeed(ctx context.Context, now time.Time, bf time.Duration, log *slo
 	_ = st.SetSetting(ctx, speedtest.SettingKey, string(speedtest.ModeRegions))
 	_ = st.SetSetting(ctx, "speedtest_seed", "7")
 	n := &fakeNet{cat: cat, r: rand.New(rand.NewPCG(3, 4))}
-	span := min(max(bf, 2*24*time.Hour), 30*24*time.Hour)
+	span := min(max(bf, 2*24*time.Hour), 90*24*time.Hour)
 	var defaults []speedtest.Region
 	for _, reg := range cat.Regions {
 		if reg.Default {
