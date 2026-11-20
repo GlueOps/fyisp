@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -517,5 +518,57 @@ func TestWarmup(t *testing.T) {
 	w.Observe(model.Sample{Key: model.SeriesKey{Target: "c"}, Lost: true, Reason: model.ReasonGap})
 	if w.Ready() != 2 {
 		t.Errorf("ready = %d", w.Ready())
+	}
+}
+
+// TestPanelTargets: targets= answers for a list of targets from any groups,
+// in the order asked for, in one store call; every name must be a target.
+func TestPanelTargets(t *testing.T) {
+	now := time.Now()
+	cs, d := fixture(t, now)
+	h := Local(d, LocalOptions{Addr: "127.0.0.1:3000"})
+	host := map[string]string{"Host": "127.0.0.1:3000"}
+	w := do(h, "GET", "/api/panel?targets=Router,Beta,Router&from=now-40m", host) // not the profile's order
+	if w.Code != 200 || cs.calls.Load() != 1 {
+		t.Fatalf("%d, %d store calls: %s", w.Code, cs.calls.Load(), w.Body.String())
+	}
+	var r panelResp
+	if err := json.Unmarshal(w.Body.Bytes(), &r); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range r.Series {
+		if len(got) == 0 || got[len(got)-1] != s.Target {
+			got = append(got, s.Target)
+		}
+	}
+	if r.Group.ID != "targets" || len(got) != 2 || got[0] != "Router" || got[1] != "Beta" || len(cs.last.Keys) != len(r.Series) {
+		t.Errorf("group %q, targets %v, %d keys for %d series", r.Group.ID, got, len(cs.last.Keys), len(r.Series))
+	}
+	w = do(h, "GET", "/api/panel.csv?targets=Beta,Router", host)
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Disposition"), `filename="fyisp-targets-`) {
+		t.Errorf("csv %d %q", w.Code, w.Header().Get("Content-Disposition"))
+	}
+	var many []string
+	for i := range maxPanelTargets + 1 {
+		many = append(many, fmt.Sprintf("T%d", i))
+	}
+	// A name is percent-encoded, so one with a comma is one name.
+	if p, err := parsePanelParams(url.Values{"targets": {"Paris%2C%20FR,Beta"}}, now); err != nil || len(p.targets) != 2 || p.targets[0] != "Paris, FR" {
+		t.Errorf("encoded name: %q %v", p.targets, err)
+	}
+	for q, want := range map[string]int{
+		"targets=Beta,Nope":      404, // not a target of the profile
+		"targets=Beta&group=lan": 400,
+		"targets=Beta,,Router":   400,
+		"targets=Beta,%25zz":     400, // %zz once the query is decoded
+		"targets=" + strings.Join(many[:maxPanelTargets], ","): 404, // the most allowed: past the count check
+		"targets=" + strings.Join(many, ","):                   400,
+		"targets=" + strings.Repeat("x", 65):                   400,
+		"":                                                     400,
+	} {
+		if w := do(h, "GET", "/api/panel?"+q, host); w.Code != want {
+			t.Errorf("%q = %d, want %d", q, w.Code, want)
+		}
 	}
 }

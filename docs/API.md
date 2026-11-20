@@ -23,7 +23,7 @@ Every route the dashboard serves, the `/metrics` series and the `fyisp export` C
 | GET | `api/status` | version, start time, ICMP support, warm-up and store health | [below](#get-apistatus) |
 | GET | `api/profile` | the profile: groups, targets and which features are on | [below](#get-apiprofile) |
 | GET | `api/home` | Home: the answer card, connection strip, tiles, speed and problems | [HOME-API.md](HOME-API.md) |
-| GET | `api/panel`, `api/panel.csv` | one group's chart data, as JSON or CSV | [below](#get-apipanel-and-apipanelcsv) |
+| GET | `api/panel`, `api/panel.csv` | chart data of one group, or of a list of targets, as JSON or CSV | [below](#get-apipanel-and-apipanelcsv) |
 | GET | `api/probes` | one series' probes slower than a threshold, and its lost probes | [below](#get-apiprobes) |
 | GET | `api/verdict` | the current verdict | [below](#get-apiverdict-and-apiincidents) |
 | GET | `api/incidents` | the outage log | [below](#get-apiverdict-and-apiincidents) |
@@ -59,7 +59,7 @@ No parameters. `profileJSON` in `internal/web/api.go`: `name`, `features` (`trac
 
 ### GET `api/panel` and `api/panel.csv`
 
-`group` (required), `from` (default `now-30m`), `to` (default `now`), `points` (10 to 2000, default 1000). The span is at most 90 days. The JSON (`panelData.JSON` in `internal/web/api.go`) has `group`, `tier`, `from`, `to`, `now`, `start`, `step` and `len`, and per series `target`, `kind` (`hop` for trace series) and the bucket arrays `mean`, `min`, `max`, `n`, `lost`, `gap` and `lost_by` (per loss reason). The CSV is the same data as a download. An unknown group is 404; a query that takes too long is 503 with `Retry-After: 2`.
+`group`, or instead `targets`: up to 16 target names of the profile, from any groups, comma-separated and each percent-encoded (a name may hold a comma). Their series come in the order asked for, a name given twice counts once, and the answer's `group` is then `targets`. Giving both is 400; `from` (default `now-30m`), `to` (default `now`), `points` (10 to 2000, default 1000). The span is at most 90 days. The JSON (`panelData.JSON` in `internal/web/api.go`) has `group`, `tier`, `from`, `to`, `now`, `start`, `step` and `len`, and per series `target`, `kind` (`hop` for trace series) and the bucket arrays `mean`, `min`, `max`, `n`, `lost`, `gap` and `lost_by` (per loss reason). The CSV is the same data as a download. An unknown group or target is 404; a query that takes too long is 503 with `Retry-After: 2`.
 
 ### GET `api/probes`
 

@@ -83,7 +83,7 @@ const BLAME = { lan: 'gateway', isp: 'isp-edge', upstream: 'anycast', dns: 'serv
  *   view:string|null, focus:string|null, os:string, oq:string, og:string, op:boolean, oc:string, om:string, sr:string, sd:number, snf:boolean, ssw:boolean, stc:number}}
  */
 const state = { range: '30m', from: null, to: null, kinds: new Set(['tcp']), log: false, inv: null, im: 'icmp', band: true,
-  view: null, focus: null, os: '', oq: '', og: '', op: false, oc: '', om: '', sr: '', sd: 7, snf: false, ssw: false, stc: 0 };
+  view: null, focus: null, os: '', oq: '', cc: false, og: '', op: false, oc: '', om: '', sr: '', sd: 7, snf: false, ssw: false, stc: 0 };
 /** @type {any} */
 let status = null;
 /** The kinds the header offers, main kind first: those of the profile's non-path targets (TCP alone for every shipped profile). */
@@ -219,6 +219,7 @@ function readHash() {
   state.focus = p.get('f') || null;
   state.os = p.get('os') || '';
   state.oq = cleanPattern(p.get('oq'));
+  state.cc = p.get('cc') === '1';
   const og = p.get('og');
   state.og = og && GEOS.includes(og) ? og : '';
   state.op = p.get('op') === '1';
@@ -253,6 +254,7 @@ function hashString() {
   if (state.focus) p.set('f', state.focus);
   if (state.os) p.set('os', state.os);
   if (state.oq) p.set('oq', state.oq);
+  if (state.cc) p.set('cc', '1');
   if (state.og) p.set('og', state.og);
   if (state.op) p.set('op', '1');
   if (state.oc) p.set('oc', state.oc);
@@ -279,10 +281,11 @@ function queryRange() {
 // ---------- panels ----------
 
 class Panel {
-  /** @param {Group} group @param {TargetInfo[]} targets */
-  constructor(group, targets) {
+  /** @param {Group} group @param {TargetInfo[]} targets @param {boolean} [combo] the combined chart: the filter's targets, from any groups (setTargets) */
+  constructor(group, targets, combo = false) {
     this.group = group;
     this.targets = targets;
+    this.combo = combo;
     /** @type {Set<string>} */
     this.hidden = new Set();
     /** @type {PanelData|null} */
@@ -324,9 +327,14 @@ class Panel {
     const pathTrace = this.isPath && traceOn && defaultTraceTarget()
       ? h('button', { class: 'tbtn', type: 'button', title: 'Trace the path hop by hop: where does loss start?', text: 'Investigate path', onclick: () => openInvestigate(defaultTraceTarget()) })
       : null;
-    this.el = h('section', { class: this.isPath ? 'panel path' : 'panel', 'aria-label': group.title, id: 'panel-' + group.id },
-      h('div', { class: 'panel-head' }, h('h2', { text: group.title }), this.meta, pathTrace, this.csv),
+    this.title = h('h2', { text: group.title });
+    // Latencies more than tenfold apart share one axis badly: the combined chart says so.
+    this.scaleNote = combo ? h('p', { class: 'muted small scale-note', hidden: true, text: 'These targets’ response times are more than tenfold apart, so the fastest ones look flat here. Separate charts show them better.' }) : null;
+    const back = combo ? h('button', { class: 'btn sm', type: 'button', text: 'Back to separate charts', onclick: () => setCombined(false) }) : null;
+    this.el = h('section', { class: this.isPath ? 'panel path' : combo ? 'panel combo' : 'panel', 'aria-label': group.title, id: 'panel-' + group.id },
+      h('div', { class: 'panel-head' }, this.title, this.meta, pathTrace, back, this.csv),
       this.layers,
+      this.scaleNote,
       this.chartEl,
       h('div', { class: 'strip-wrap' }, this.strip),
       this.stripLegend,
@@ -339,8 +347,18 @@ class Panel {
 
   height() { return this.isPath ? 200 : this.targets.length > 12 ? 300 : 240; }
 
-  /** Whether the filter leaves this target on the chart: every target on the path chart and in focus mode. */
-  matches(/** @type {string} */ name) { return this.isPath || filterBypass === this || !filter || filter.has(name); }
+  /** Whether the filter leaves this target on the chart: every target on the path chart, in focus mode and on the combined chart (its targets are the filter's). */
+  matches(/** @type {string} */ name) { return this.isPath || this.combo || filterBypass === this || !filter || filter.has(name); }
+
+  /** The combined chart's targets: colours by position, so up to 8 are all different. */
+  setTargets(/** @type {TargetInfo[]} */ targets) {
+    this.targets = targets;
+    this.colors = new Map(targets.map((t, i) => [t.name, i]));
+    this.hidden = new Set();
+    this.title.textContent = `Combined chart: ${targets.length} targets`;
+    this.el.setAttribute('aria-label', this.title.textContent);
+    this.stale = true;
+  }
 
   /**
    * Probe kinds this panel shows. The network path shows its ICMP (or TCP
@@ -351,6 +369,8 @@ class Panel {
   kinds() {
     // A panel of UDP (STUN) targets only shows their UDP series.
     if (this.targets.length && this.targets.every((t) => t.kinds.includes('udp'))) return new Set(['udp']);
+    // The combined chart can mix them with the others: their UDP lines beside the selected kinds.
+    if (this.combo && this.targets.some((t) => t.kinds.includes('udp'))) return new Set([...state.kinds, 'udp']);
     if (!this.isPath) return state.kinds;
     const avail = new Set(this.targets.flatMap((t) => t.kinds));
     const icmpOff = status && status.caps && status.caps.icmp === 'unavailable';
@@ -374,7 +394,7 @@ class Panel {
     this.stale = false;
     const { from, to } = queryRange();
     const points = Math.min(2000, Math.max(50, Math.round(this.width())));
-    const q = new URLSearchParams({ group: this.group.id, from, to, points: String(points) });
+    const q = new URLSearchParams({ ...(this.combo ? { targets: this.targets.map((t) => encodeURIComponent(t.name)).join(',') } : { group: this.group.id }), from, to, points: String(points) });
     this.csv.setAttribute('href', 'api/panel.csv?' + q);
     this.chartEl.classList.add('loading');
     try {
@@ -459,7 +479,8 @@ class Panel {
         if (!kinds.has(k) || !t.kinds.includes(k)) continue;
         const sd = byKey.get(t.name + '\0' + k) || null;
         smap.push({ si: si++, target: t.name, kind: k, role: 'mean', sd, color });
-        if (k === mk) {
+        // The min–max fills of more than 4 targets from different places are mud.
+        if (k === mk && !(this.combo && this.targets.length > 4)) {
           smap.push({ si: si++, target: t.name, kind: k, role: 'max', sd, color });
           smap.push({ si: si++, target: t.name, kind: k, role: 'min', sd, color });
         }
@@ -494,6 +515,15 @@ class Panel {
     this.renderLegend();
     this.drawStrip();
     if (this.isPath) this.renderLayers();
+  }
+
+  /** The combined chart's parts that depend on the lines shown: the scale note, and the loss strip (it sums the lines, so only for one). */
+  comboParts() {
+    if (!this.scaleNote) return;
+    // Each target's typical response time: the median of its bucket means.
+    const typical = this.visibleSeries().filter((x) => x.kind === this.mainKind()).map((x) => median(x.mean.filter((v) => v != null))).filter((v) => v > 0);
+    this.scaleNote.hidden = typical.length < 2 || Math.max(...typical) <= 10 * Math.min(...typical);
+    this.el.classList.toggle('one-shown', new Set(this.visibleSeries().map((x) => x.target)).size === 1);
   }
 
   /** The highest visible mean in the x range. The y axis fits the means, not
@@ -826,6 +856,7 @@ class Panel {
       }
     });
     this.syncProbes();
+    this.comboParts();
   }
 
   /** Series that count for legend, strip and tooltip: selected kinds, visible targets. */
@@ -2453,7 +2484,31 @@ function panelShown(/** @type {Panel} */ p) {
   if (currentView() !== 'c') return false;
   const fp = focusPanel();
   if (fp) return fp === p;
+  if (p.combo || combined()) return p.combo && combined();
   return !filter || p.targets.some((t) => filter.has(t.name));
+}
+/** The most targets the combined chart draws: the palette has 8 hues. */
+const COMBINE_MAX = 8;
+/** The combined chart's stand-in for a group id (group ids of a profile are letters, digits and dashes, or the user's own words). */
+const COMBO_GROUP = '~combined';
+/** The combined chart is on (#cc=1) and the filter's targets fit it: 2 to COMBINE_MAX. */
+function combined() {
+  const n = filter && filter.names ? filter.names.size : 0;
+  return state.cc && n >= 2 && n <= COMBINE_MAX && !focusPanel();
+}
+/** Gives the combined chart the filter's targets, when it is on and they changed. */
+function syncCombined() {
+  const combo = panels.find((p) => p.combo);
+  if (!combo || !combined()) return;
+  const list = allTargets.filter((t) => filter?.names?.has(t.name));
+  if (list.map((t) => t.name).join('\n') !== combo.targets.map((t) => t.name).join('\n')) combo.setTargets(list);
+}
+function setCombined(/** @type {boolean} */ on) {
+  state.cc = on;
+  writeHash();
+  applyFilter();
+  // The button pressed is gone now: focus goes to the one that undoes it.
+  if (on) panels.find((p) => p.combo)?.el.querySelector('button')?.focus(); else cfCombine.focus();
 }
 function loadStale() { for (const p of panels) if (p.visible && p.stale && panelShown(p)) p.load(); }
 /** Worst first: state, then loss, then ratio. */
@@ -3674,7 +3729,9 @@ const cfClear = h('button', { class: 'btn sm', type: 'button', text: 'Clear filt
 const cfNote = h('p', { class: 'cf-note small', id: 'cf-note', text: FILTER_HINT });
 const cfSay = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
 const cfNone = h('p', { class: 'cf-none muted', hidden: true });
-const chartFilter = h('div', { class: 'cfilter', hidden: true }, h('div', { class: 'cf-row' }, cfIn, cfCount, cfClear), cfNote, cfNone);
+const cfCombine = /** @type {HTMLButtonElement} */ (h('button', { class: 'btn sm', type: 'button', hidden: true, 'aria-describedby': 'cf-many', onclick: () => setCombined(true) }));
+const cfMany = h('span', { class: 'muted small', id: 'cf-many' });
+const chartFilter = h('div', { class: 'cfilter', hidden: true }, h('div', { class: 'cf-row' }, cfIn, cfCount, cfCombine, cfMany, cfClear), cfNote, cfNone);
 /** The user changed the filter here (a filter from the link is not announced). */
 let filterTyped = false;
 let queryTimer = 0;
@@ -3685,6 +3742,7 @@ cfIn.addEventListener('input', () => setQuery(cfIn.value));
 function setQuery(/** @type {string} */ v) {
   filterTyped = true;
   state.oq = cleanPattern(v);
+  if (!state.oq) state.cc = false; // a later pattern starts on separate charts
   writeHash();
   window.clearTimeout(queryTimer);
   if (!state.oq) void filter?.set('');
@@ -3693,6 +3751,7 @@ function setQuery(/** @type {string} */ v) {
 
 /** The filter changed: which charts show, their lines, the table's rows. */
 function applyFilter() {
+  syncCombined();
   const shown = panels.filter((p) => panelShown(p));
   for (const p of panels) p.el.classList.toggle('off-view', !shown.includes(p));
   for (const p of panels) {
@@ -3701,7 +3760,7 @@ function applyFilter() {
     // Targets isolated by hand that the filter now leaves out would leave an empty chart.
     if (!p.targets.some((t) => p.matches(t.name) && !p.hidden.has(t.name))) p.hidden = new Set();
     // Charts away from the viewport are drawn when they come near it (a big profile has 50 of them).
-    if (!p.visible) p.stale = true; else if (p.data) p.render();
+    if (!p.visible) p.stale = true; else if (p.data && !(p.combo && p.stale)) p.render(); // the combined chart waits for its new targets' data
   }
   renderFilter();
   ov?.applyRows();
@@ -3713,11 +3772,16 @@ function renderFilter() {
   chartFilter.hidden = !(currentView() === 'c' && !focusPanel() && !(state.inv && inv));
   if (document.activeElement !== cfIn && cleanPattern(cfIn.value) !== state.oq) cfIn.value = state.oq;
   const names = filter ? filter.names : null;
-  const rest = panels.filter((p) => !p.isPath);
+  const rest = panels.filter((p) => !p.isPath && !p.combo);
   const n = names ? names.size : 0;
   const shown = names ? rest.filter((p) => p.targets.some((t) => names.has(t.name))).length : rest.length;
   cfClear.hidden = !state.oq;
-  cfCount.textContent = names ? `${fmtInt(n)} target${n === 1 ? '' : 's'} in ${fmtInt(shown)} of ${fmtInt(rest.length)} charts` : '';
+  cfCount.textContent = !names ? '' : combined() ? `${fmtInt(n)} targets in one chart` : `${fmtInt(n)} target${n === 1 ? '' : 's'} in ${fmtInt(shown)} of ${fmtInt(rest.length)} charts`;
+  // One chart for the matches: offered from 2 targets, drawn up to COMBINE_MAX.
+  cfCombine.hidden = !names || n < 2 || combined();
+  cfCombine.disabled = n > COMBINE_MAX;
+  cfCombine.textContent = `Show these ${fmtInt(n)} in one chart`;
+  cfMany.textContent = names && n > COMBINE_MAX ? `One chart shows up to ${COMBINE_MAX} targets: narrow the filter.` : '';
   cfNone.hidden = !(names && !n);
   cfNone.textContent = names && !n ? `No target matches “${filter?.pattern}”.` : '';
   window.clearTimeout(sayTimer);
@@ -3754,7 +3818,7 @@ function renderViewBar() {
     storageOn ? h('button', { type: 'button', text: 'Storage', 'aria-pressed': String(v === 'storage'), title: 'Connections and transfers to your S3 storage', onclick: () => setView('storage') }) : null,
   ].filter((b) => b != null));
   const hint = /** @type {HTMLElement} */ (viewBar.lastElementChild);
-  const n = panels.filter((p) => !p.isPath).length;
+  const n = panels.filter((p) => !p.isPath && !p.combo).length;
   hint.textContent = v === 'speed' ? 'Measured with short download and upload tests to public test servers'
     : v === 'storage' ? 'Measured with fresh connections, downloads and uploads to storage endpoints you add'
     : v === 'calls' ? 'Measured with tiny STUN tests over UDP, the path call audio and video take'
@@ -3790,6 +3854,7 @@ function applyView() {
     filterBypass = fp;
     for (const p of [was, fp]) if (p && p.data) p.render();
   }
+  syncCombined();
   for (const p of panels) {
     p.el.classList.toggle('off-view', !panelShown(p));
     p.el.classList.toggle('focused', p === fp);
@@ -4261,6 +4326,8 @@ async function main() {
   // The network path comes first, full width.
   const groups = [...prof.groups].sort((/** @type {Group} */ a, /** @type {Group} */ b) => Number(b.id === PATH_GROUP) - Number(a.id === PATH_GROUP));
   panels = groups.map((/** @type {Group} */ g) => new Panel(g, targets.filter((t) => t.group === g.id)));
+  // Last: a target is looked up in its own group's chart first.
+  panels.push(new Panel({ id: COMBO_GROUP, title: 'Combined chart' }, [], true));
   bigProfile = targets.filter((t) => !t.layer).length > OVERVIEW_MIN;
   callsOn = targets.some((t) => (t.tags || []).some((x) => x === 'udp-path' || x.startsWith('app:')));
   ov = new Overview();
@@ -4280,8 +4347,8 @@ async function main() {
   // The view switch, then Calls, the network path, the Overview or the charts: DOM order is visual order.
   const path = panels.filter((p) => p.isPath).map((p) => p.el);
   storageOn = !!(prof.features && prof.features.storage);
-  $('#panels').replaceChildren(viewBar, chartFilter, cfSay, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => !p.isPath).map((p) => p.el));
-  if (panels.length > LAZY_PANELS && 'IntersectionObserver' in window) {
+  $('#panels').replaceChildren(viewBar, chartFilter, cfSay, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => p.combo).map((p) => p.el), ...panels.filter((p) => !p.isPath && !p.combo).map((p) => p.el));
+  if (groups.length > LAZY_PANELS && 'IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         const p = panels.find((x) => x.el === e.target);
@@ -4290,7 +4357,7 @@ async function main() {
         if (p.visible && p.stale && panelShown(p) && !(state.inv && inv)) p.load();
       }
     }, { rootMargin: '800px 0px' });
-    for (const p of panels) { p.visible = false; io.observe(p.el); }
+    for (const p of panels) if (!p.combo) { p.visible = false; io.observe(p.el); }
   }
   uPlot.sync(SYNC_KEY);
   if (traceOn) {
