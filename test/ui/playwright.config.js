@@ -16,6 +16,10 @@ module.exports = defineConfig({
   retries: 0,
   // A fixed number, so a run is the same on a laptop and on CI's 4 cores.
   workers: 4,
+  // Four browsers on CI's 4 cores run a test about 2.3 times slower than one
+  // does (home-csp: 14 s alone, 32 s there), so both limits are 3 and 2 times the defaults.
+  timeout: 90e3,
+  expect: { timeout: 10e3 },
   reporter: [['list'], ['html', { outputFolder: './out/report', open: 'never' }]],
   use: {
     ...devices['Desktop Chrome'],
