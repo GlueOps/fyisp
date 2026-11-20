@@ -63,6 +63,9 @@ func newStorageLab(t *testing.T, o LocalOptions) *storageLab {
 	cs := storage.NewCampaigns(storage.CampaignOptions{Store: db, Queue: q, Engine: e, Targets: d.Storage})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{}, 2)
+	// As main does before serving: left to Run, the restore can come after a
+	// test's first campaign and end it as one that ran out while fyisp was down.
+	cs.Restore(ctx)
 	go func() { q.Run(ctx); done <- struct{}{} }()
 	go func() { cs.Run(ctx); done <- struct{}{} }()
 	t.Cleanup(func() { cancel(); <-done; <-done; db.Close() })

@@ -80,6 +80,7 @@ func newFakeStorage(ctx context.Context, scenario string, q *speedtest.Queue, lo
 				{IP: ""}, {IP: "198.51.100.20", ASN: 64510, Owner: "EXAMPLE-TRANSIT"}, {IP: ip.String(), ASN: 64520, Owner: "EXAMPLE-STORAGE"}}, 64510, true
 		}})
 	done := make(chan struct{})
+	c.Restore(ctx) // before the API serves, as fyisp does
 	go func() { defer close(done); c.Run(ctx) }()
 	// After ctx ends: the campaigns stop before the database closes (a
 	// round in the queue is saved by the scheduler that runs it).

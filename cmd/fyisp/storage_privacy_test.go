@@ -83,6 +83,7 @@ func TestStoragePrivacyEndToEnd(t *testing.T) {
 	cs := storage.NewCampaigns(storage.CampaignOptions{Store: st, Queue: q, Engine: e, Targets: svc, Log: log, OnRound: sm.Observe})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{}, 2)
+	cs.Restore(ctx) // as main does before serving, so Run's restore can't end the campaign below
 	go func() { q.Run(ctx); done <- struct{}{} }()
 	go func() { cs.Run(ctx); done <- struct{}{} }()
 	defer func() { cancel(); <-done; <-done }()
