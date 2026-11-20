@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 # All building and testing goes through this file: no local Go toolchain needed.
 #   docker build --target test .                                   # vet + tests
 #   docker buildx build --target dist --output type=local,dest=dist .   # all release binaries
@@ -12,9 +12,10 @@
 #   docker build --target livetest -t fyisp-livetest .              # live --tunnel tests: see internal/tunnel/live_test.go
 #   docker build --target s3lab .                                  # storage engine vs RustFS and Garage (s3lab-full: and MinIO)
 
-ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5
+ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
 # The browser image for the UI tests; its Playwright must match test/ui/package.json.
-ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
+ARG DEBIAN_IMAGE=debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS base
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
@@ -101,7 +102,7 @@ FROM source AS livetest-build
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go test -c -race -o /tunnel.test ./internal/tunnel
-FROM debian:stable-slim AS livetest
+FROM ${DEBIAN_IMAGE} AS livetest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iptables && rm -rf /var/lib/apt/lists/*
 COPY --from=livetest-build /tunnel.test /tunnel.test
 ENTRYPOINT ["/tunnel.test"]
@@ -195,7 +196,7 @@ if [ "$TARGETARCH" = arm ]; then arm=7; name=fyisp-$TARGETOS-armv7; fi
 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=$arm go build -ldflags "-s -w -X main.version=launcher-test" -o /lt/fyisp ./cmd/fyisp
 echo "$name" > /lt/asset
 SH
-FROM debian:stable-slim AS launchertest
+FROM ${DEBIAN_IMAGE} AS launchertest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 bash && rm -rf /var/lib/apt/lists/*
 COPY --from=launcher-bin /lt/ /lt/
 COPY scripts/ /lt/scripts/
@@ -208,7 +209,7 @@ COPY scripts/ /lt/scripts/
 RUN sh /lt/scripts/launcher_test.sh /lt/scripts /lt/fyisp "$(cat /lt/asset)" pwsh
 
 # systemd unit lint: docker build --target servicetest .
-FROM debian:stable-slim AS servicetest
+FROM ${DEBIAN_IMAGE} AS servicetest
 RUN apt-get update && apt-get install -y --no-install-recommends systemd && rm -rf /var/lib/apt/lists/*
 COPY --from=launcher-bin /lt/fyisp /usr/local/bin/fyisp
 COPY packaging/fyisp.service /etc/systemd/system/fyisp.service
@@ -303,7 +304,7 @@ ENTRYPOINT ["/fyisp"]
 # image's root filesystem is run with chroot as the runtime user, because a
 # build step cannot start a container.
 #   docker build --target imagetest .
-FROM debian:stable-slim AS imagetest
+FROM ${DEBIAN_IMAGE} AS imagetest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=runtime / /img/
 RUN <<'SH'

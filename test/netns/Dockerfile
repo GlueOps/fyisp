@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 # Builds the netns harness: the fyisp binary and the compiled test.
 # Used by test/netns/run.sh; GO_IMAGE is passed from the repo Dockerfile.
 #   docker buildx build -f test/netns/Dockerfile --build-arg GO_IMAGE=... --output type=local,dest=OUT .
