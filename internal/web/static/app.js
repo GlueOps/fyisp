@@ -369,6 +369,8 @@ class Panel {
   kinds() {
     // A panel of UDP (STUN) targets only shows their UDP series.
     if (this.targets.length && this.targets.every((t) => t.kinds.includes('udp'))) return new Set(['udp']);
+    // The combined chart can mix them with the others: their UDP lines beside the selected kinds.
+    if (this.combo && this.targets.some((t) => t.kinds.includes('udp'))) return new Set([...state.kinds, 'udp']);
     if (!this.isPath) return state.kinds;
     const avail = new Set(this.targets.flatMap((t) => t.kinds));
     const icmpOff = status && status.caps && status.caps.icmp === 'unavailable';
@@ -392,7 +394,7 @@ class Panel {
     this.stale = false;
     const { from, to } = queryRange();
     const points = Math.min(2000, Math.max(50, Math.round(this.width())));
-    const q = new URLSearchParams({ ...(this.combo ? { targets: this.targets.map((t) => t.name).join(',') } : { group: this.group.id }), from, to, points: String(points) });
+    const q = new URLSearchParams({ ...(this.combo ? { targets: this.targets.map((t) => encodeURIComponent(t.name)).join(',') } : { group: this.group.id }), from, to, points: String(points) });
     this.csv.setAttribute('href', 'api/panel.csv?' + q);
     this.chartEl.classList.add('loading');
     try {
@@ -513,11 +515,15 @@ class Panel {
     this.renderLegend();
     this.drawStrip();
     if (this.isPath) this.renderLayers();
-    if (this.scaleNote) {
-      // Each target's typical response time: the median of its bucket means.
-      const typical = this.visibleSeries().filter((x) => x.kind === this.mainKind()).map((x) => median(x.mean.filter((v) => v != null))).filter((v) => v > 0);
-      this.scaleNote.hidden = typical.length < 2 || Math.max(...typical) <= 10 * Math.min(...typical);
-    }
+  }
+
+  /** The combined chart's parts that depend on the lines shown: the scale note, and the loss strip (it sums the lines, so only for one). */
+  comboParts() {
+    if (!this.scaleNote) return;
+    // Each target's typical response time: the median of its bucket means.
+    const typical = this.visibleSeries().filter((x) => x.kind === this.mainKind()).map((x) => median(x.mean.filter((v) => v != null))).filter((v) => v > 0);
+    this.scaleNote.hidden = typical.length < 2 || Math.max(...typical) <= 10 * Math.min(...typical);
+    this.el.classList.toggle('one-shown', new Set(this.visibleSeries().map((x) => x.target)).size === 1);
   }
 
   /** The highest visible mean in the x range. The y axis fits the means, not
@@ -850,6 +856,7 @@ class Panel {
       }
     });
     this.syncProbes();
+    this.comboParts();
   }
 
   /** Series that count for legend, strip and tooltip: selected kinds, visible targets. */
@@ -2482,23 +2489,26 @@ function panelShown(/** @type {Panel} */ p) {
 }
 /** The most targets the combined chart draws: the palette has 8 hues. */
 const COMBINE_MAX = 8;
-/** The filter's targets when they fit one chart (2 to COMBINE_MAX), else null. @returns {TargetInfo[]|null} */
-function combinable() {
-  const names = filter ? filter.names : null;
-  return names && names.size >= 2 && names.size <= COMBINE_MAX ? allTargets.filter((t) => names.has(t.name)) : null;
+/** The combined chart's stand-in for a group id (group ids of a profile are letters, digits and dashes, or the user's own words). */
+const COMBO_GROUP = '~combined';
+/** The combined chart is on (#cc=1) and the filter's targets fit it: 2 to COMBINE_MAX. */
+function combined() {
+  const n = filter && filter.names ? filter.names.size : 0;
+  return state.cc && n >= 2 && n <= COMBINE_MAX && !focusPanel();
 }
-/** The combined chart is on (#cc=1) and the filter's targets fit it. */
-function combined() { return state.cc && !focusPanel() && !!combinable(); }
 /** Gives the combined chart the filter's targets, when it is on and they changed. */
 function syncCombined() {
-  const list = combined() ? combinable() : null;
   const combo = panels.find((p) => p.combo);
-  if (combo && list && list.map((t) => t.name).join() !== combo.targets.map((t) => t.name).join()) combo.setTargets(list);
+  if (!combo || !combined()) return;
+  const list = allTargets.filter((t) => filter?.names?.has(t.name));
+  if (list.map((t) => t.name).join('\n') !== combo.targets.map((t) => t.name).join('\n')) combo.setTargets(list);
 }
 function setCombined(/** @type {boolean} */ on) {
   state.cc = on;
   writeHash();
   applyFilter();
+  // The button pressed is gone now: focus goes to the one that undoes it.
+  if (on) panels.find((p) => p.combo)?.el.querySelector('button')?.focus(); else cfCombine.focus();
 }
 function loadStale() { for (const p of panels) if (p.visible && p.stale && panelShown(p)) p.load(); }
 /** Worst first: state, then loss, then ratio. */
@@ -3732,6 +3742,7 @@ cfIn.addEventListener('input', () => setQuery(cfIn.value));
 function setQuery(/** @type {string} */ v) {
   filterTyped = true;
   state.oq = cleanPattern(v);
+  if (!state.oq) state.cc = false; // a later pattern starts on separate charts
   writeHash();
   window.clearTimeout(queryTimer);
   if (!state.oq) void filter?.set('');
@@ -3749,7 +3760,7 @@ function applyFilter() {
     // Targets isolated by hand that the filter now leaves out would leave an empty chart.
     if (!p.targets.some((t) => p.matches(t.name) && !p.hidden.has(t.name))) p.hidden = new Set();
     // Charts away from the viewport are drawn when they come near it (a big profile has 50 of them).
-    if (!p.visible) p.stale = true; else if (p.data) p.render();
+    if (!p.visible) p.stale = true; else if (p.data && !(p.combo && p.stale)) p.render(); // the combined chart waits for its new targets' data
   }
   renderFilter();
   ov?.applyRows();
@@ -4316,7 +4327,7 @@ async function main() {
   const groups = [...prof.groups].sort((/** @type {Group} */ a, /** @type {Group} */ b) => Number(b.id === PATH_GROUP) - Number(a.id === PATH_GROUP));
   panels = groups.map((/** @type {Group} */ g) => new Panel(g, targets.filter((t) => t.group === g.id)));
   // Last: a target is looked up in its own group's chart first.
-  panels.push(new Panel({ id: 'targets', title: 'Combined chart' }, [], true));
+  panels.push(new Panel({ id: COMBO_GROUP, title: 'Combined chart' }, [], true));
   bigProfile = targets.filter((t) => !t.layer).length > OVERVIEW_MIN;
   callsOn = targets.some((t) => (t.tags || []).some((x) => x === 'udp-path' || x.startsWith('app:')));
   ov = new Overview();

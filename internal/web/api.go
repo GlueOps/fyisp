@@ -35,8 +35,8 @@ func badReq(format string, a ...any) error { return fmt.Errorf(format, a...) }
 
 var errUnknownGroup = errors.New("unknown group")
 
-// maxPanelTargets is the most targets one api/panel?targets= answer holds
-// (the combined chart draws 8).
+// maxPanelTargets is the most targets one api/panel?targets= answer holds:
+// twice what the dashboard's combined chart draws, for other callers.
 const maxPanelTargets = 16
 
 // targetsGroup stands in for the group of a targets= panel.
@@ -129,7 +129,9 @@ func parsePanelParams(q url.Values, now time.Time) (panelParams, error) {
 		}
 		seen := map[string]bool{}
 		for _, n := range strings.Split(ts, ",") {
-			if n == "" || len(n) > 64 {
+			// Each name is percent-encoded: a name may hold a comma.
+			n, err := url.QueryUnescape(n)
+			if err != nil || n == "" || len(n) > 64 {
 				return p, badReq("bad target name")
 			}
 			if !seen[n] {
@@ -211,19 +213,29 @@ func resolveGroup(p *model.Profile, id string) (model.Group, []panelSeries, time
 	if !found {
 		return g, nil, 0, errUnknownGroup
 	}
+	var ts []model.Target
+	for _, t := range p.Targets {
+		if t.Group == id {
+			ts = append(ts, t)
+		}
+	}
+	out, maxIv := seriesOf(ts)
+	return g, out, maxIv, nil
+}
+
+// seriesOf returns every series of the targets, in their order, and the
+// longest probe interval.
+func seriesOf(ts []model.Target) ([]panelSeries, time.Duration) {
 	var out []panelSeries
 	var maxIv time.Duration
-	for _, t := range p.Targets {
-		if t.Group != id {
-			continue
-		}
+	for _, t := range ts {
 		for _, k := range t.ProbeKinds() {
 			iv := intervalOf(t, k)
 			maxIv = max(maxIv, iv)
 			out = append(out, panelSeries{key: model.SeriesKey{Target: t.Name, Kind: k}, interval: iv})
 		}
 	}
-	return g, out, maxIv, nil
+	return out, maxIv
 }
 
 // resolveTargets is resolveGroup for a list of targets from any groups, in
@@ -236,19 +248,15 @@ func resolveTargets(p *model.Profile, names []string) ([]panelSeries, time.Durat
 	for _, t := range p.Targets {
 		byName[t.Name] = t
 	}
-	var out []panelSeries
-	var maxIv time.Duration
+	ts := make([]model.Target, 0, len(names))
 	for _, n := range names {
 		t, ok := byName[n]
 		if !ok {
 			return nil, 0, errUnknownTarget
 		}
-		for _, k := range t.ProbeKinds() {
-			iv := intervalOf(t, k)
-			maxIv = max(maxIv, iv)
-			out = append(out, panelSeries{key: model.SeriesKey{Target: t.Name, Kind: k}, interval: iv})
-		}
+		ts = append(ts, t)
 	}
+	out, maxIv := seriesOf(ts)
 	return out, maxIv, nil
 }
 
@@ -266,10 +274,17 @@ type panelData struct {
 
 // queryPanel resolves the group and runs exactly one store.Panel call.
 func (d *Deps) queryPanel(ctx context.Context, p panelParams, now time.Time) (*panelData, error) {
-	g, series, maxIv, err := resolveGroup(d.Profile(), p.group)
+	var (
+		g      model.Group
+		series []panelSeries
+		maxIv  time.Duration
+		err    error
+	)
 	if len(p.targets) > 0 {
 		g = targetsGroup
 		series, maxIv, err = resolveTargets(d.Profile(), p.targets)
+	} else {
+		g, series, maxIv, err = resolveGroup(d.Profile(), p.group)
 	}
 	if err != nil {
 		return nil, err

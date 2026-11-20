@@ -314,15 +314,15 @@ func (s *server) servePanel(w http.ResponseWriter, r *http.Request, asCSV bool) 
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		switch {
 		case r.Context().Err() != nil:
-			s.d.log().Debug("panel query: client went away", "group", p.group)
+			s.d.log().Debug("panel query: client went away", "group", p.group, "targets", len(p.targets))
 		default:
-			s.d.log().Warn("panel query timed out", "group", p.group, "err", err)
+			s.d.log().Warn("panel query timed out", "group", p.group, "targets", len(p.targets), "err", err)
 		}
 		w.Header().Set("Retry-After", "2")
 		writeErr(w, r, http.StatusServiceUnavailable, "busy, retry shortly")
 		return
 	default:
-		s.d.log().Error("panel query", "group", p.group, "err", err)
+		s.d.log().Error("panel query", "group", p.group, "targets", len(p.targets), "err", err)
 		writeErr(w, r, http.StatusInternalServerError, "query failed: "+err.Error())
 		return
 	}

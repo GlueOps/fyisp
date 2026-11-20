@@ -1355,7 +1355,8 @@ body.home-on #viewnav { display: none !important; }
 .cf-note.bad { color: var(--ink); font-weight: 600; }
 .cf-none { margin: 12px 0 0; }
 
-/* The combined chart: targets from different places, so no loss strip summed over them (the legend has each target's loss). */
+/* The combined chart: targets from different places, so no loss strip summed over them (the legend has each target's loss), unless one is shown alone. */
 .panel.combo { grid-column: 1 / -1; }
-.panel.combo .strip-wrap, .panel.combo .strip-legend { display: none; }
+.panel.combo .panel-head { flex-wrap: wrap; }
+.panel.combo:not(.one-shown) .strip-wrap, .panel.combo:not(.one-shown) .strip-legend { display: none; }
 .scale-note { margin: 0 0 6px; }

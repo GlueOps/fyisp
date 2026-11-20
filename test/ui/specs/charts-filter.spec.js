@@ -207,28 +207,41 @@ test('the filter\u2019s targets in one chart: from 2 to 8 of them, from any grou
   await expect(one).toHaveText('Show these 3 in one chart');
   await one.click();
   await expect(page).toHaveURL(/cc=1/);
-  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 3 targets');
+  await expect(page.locator('.panel.combo h2')).toHaveText('Combined chart: 3 targets');
   await expect(charts(page)).toHaveCount(1);
-  await expect(page.locator('#panel-targets .u-over')).toBeVisible();
-  await expect(legend(page, 'targets')).toHaveText(['Zoom', 'dev-GitHub', 'Netflix']);
+  await expect(page.locator('.panel.combo .u-over')).toBeVisible();
+  await expect(page.locator('.panel.combo .legend .name')).toHaveText(['Zoom', 'dev-GitHub', 'Netflix']);
   await expect(count(page)).toHaveText('3 targets in one chart');
   expect(asked).toEqual(['Zoom,dev-GitHub,Netflix']);
-  // Each line has a colour of its own.
-  const colours = await page.locator('#panel-targets .legend .sw').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
-  expect(new Set(colours).size).toBe(3);
+  // Focus went to the button that undoes it; the CSV is of these targets; no summed loss strip.
+  await expect(page.getByRole('button', { name: 'Back to separate charts' })).toBeFocused();
+  await expect(page.locator('.panel.combo .panel-head a')).toHaveAttribute('href', /^api\/panel\.csv\?targets=Zoom%2Cdev-GitHub%2CNetflix&/);
+  await expect(page.locator('.panel.combo .strip')).toBeHidden();
+  // One line shown alone: its loss strip, and "Probes over X ms".
+  await page.locator('.panel.combo .legend li', { hasText: 'Netflix' }).click();
+  await expect(page.locator('.panel.combo .strip')).toBeVisible();
+  await expect(page.locator('.panel.combo .probes')).toBeVisible();
+  await expect(page.locator('.panel.combo .scale-note')).toBeHidden();
+  await page.locator('.panel.combo .legend li', { hasText: 'Netflix' }).click();
+  await expect(page.locator('.panel.combo .strip')).toBeHidden();
   // Narrowing the pattern changes the chart; one target left is a chart of its own again.
   await box(page).fill('zoom|netflix');
-  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 2 targets');
-  await expect(legend(page, 'targets')).toHaveText(['Zoom', 'Netflix']);
+  await expect(page.locator('.panel.combo h2')).toHaveText('Combined chart: 2 targets');
+  await expect(page.locator('.panel.combo .legend .name')).toHaveText(['Zoom', 'Netflix']);
   await box(page).fill('zoom');
-  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(page.locator('.panel.combo')).toBeHidden();
   await expect(page.locator('#panel-call-apps')).toBeVisible();
+  // Widening it again asks for the new list.
+  await box(page).fill('zoom|netflix|slack');
+  await expect(page.locator('.panel.combo .legend .name')).toHaveText(['Zoom', 'Slack', 'Netflix']);
+  expect(asked.at(-1)).toBe('Zoom,Slack,Netflix');
   // Back to separate charts.
   await box(page).fill('zoom|netflix');
-  await expect(page.locator('#panel-targets')).toBeVisible();
+  await expect(page.locator('.panel.combo')).toBeVisible();
   await page.getByRole('button', { name: 'Back to separate charts' }).click();
   await expect(page).not.toHaveURL(/cc=1/);
-  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(page.getByRole('button', { name: /in one chart$/ })).toBeFocused();
+  await expect(page.locator('.panel.combo')).toBeHidden();
   await expect(charts(page)).toHaveCount(2);
 });
 
@@ -238,14 +251,38 @@ test('more than 8 matches are not combined, and the link says why', async ({ pag
   const one = page.getByRole('button', { name: /in one chart$/ });
   await expect(one).toBeDisabled();
   await expect(page.locator('#cf-many')).toHaveText('One chart shows up to 8 targets: narrow the filter.');
-  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(page.locator('.panel.combo')).toBeHidden();
   await expect(charts(page)).toHaveCount(3);
   // A link with a combined chart opens on it.
   await page.goto('/#v=c&cc=1&oq=' + encodeURIComponent('^cdn-'));
-  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 5 targets');
-  await expect(legend(page, 'targets')).toHaveCount(5);
-  // Clear filter leaves it.
+  await expect(page.locator('.panel.combo h2')).toHaveText('Combined chart: 5 targets');
+  await expect(page.locator('.panel.combo .legend .name')).toHaveCount(5);
+  // Each of the 5 lines has a colour of its own, though they are one group's on their own chart.
+  const colours = await page.locator('.panel.combo .legend .sw').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+  expect(new Set(colours).size).toBe(5);
+  // Clear filter leaves it, and the next pattern starts on separate charts.
   await page.getByRole('button', { name: 'Clear filter' }).click();
-  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(page.locator('.panel.combo')).toBeHidden();
   await expect(charts(page)).toHaveCount(4);
+  await expect(page).not.toHaveURL(/cc=1/);
+  await box(page).fill('zoom|slack');
+  await expect(count(page)).toHaveText('2 targets in 1 of 4 charts');
+  await expect(page.locator('.panel.combo')).toBeHidden();
+});
+
+test('exactly 8 targets are combined, 9 are not; call-path targets keep their lines', async ({ page }) => {
+  const eight = '^(zoom|slack|webex|discord|dropbox|onedrive|youtube|netflix)$';
+  await page.goto('/#v=c&cc=1&oq=' + encodeURIComponent(eight));
+  await expect(page.locator('.panel.combo h2')).toHaveText('Combined chart: 8 targets');
+  await expect(page.locator('.panel.combo .legend .name')).toHaveCount(8);
+  const colours = await page.locator('.panel.combo .legend .sw').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+  expect(new Set(colours).size).toBe(8);
+  await box(page).fill(eight.replace(')$', '|google-meet)$'));
+  await expect(count(page)).toHaveText('9 targets in 3 of 4 charts');
+  await expect(page.locator('.panel.combo')).toBeHidden();
+  await expect(page.getByRole('button', { name: /in one chart$/ })).toBeDisabled();
+  // A STUN target (UDP only) beside a TCP one: both are drawn.
+  await box(page).fill('^(meet-stun|zoom)$');
+  await expect(page.locator('.panel.combo h2')).toHaveText('Combined chart: 2 targets');
+  await expect(page.locator('.panel.combo .legend .name')).toHaveText(['Meet-STUN', 'Zoom']);
 });
