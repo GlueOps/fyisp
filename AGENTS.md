@@ -83,7 +83,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 
 - **Commits:** Conventional Commits, lowercase, e.g. `feat(web)!: ...`, `fix(ui): ...`, `docs(readme): ...`. `!` marks a breaking change. The body says why.
 - **PRs:** keep them focused. They are merged with merge commits. Open an issue before large changes.
-- **CI** runs the Docker targets above, the UI tests when the UI changes, and native `go test` on Windows and macOS. The netns suite runs nightly. Write timing tests with `testing/synctest`, not sleeps.
+- **CI** runs the Docker targets above, the UI tests when the UI changes, and native `go test` on Windows and macOS. The UI specs run four at a time against one shared fyisp-webdev. A spec that changes that server's state goes in `STATEFUL` in `test/ui/playwright.config.js`; those run one at a time afterwards, and not at all if an earlier spec failed (`--no-deps` runs them alone). A spec that needs its own data starts its own fyisp-webdev (`webdev()` in `fixtures.js`) on a port no other test uses. The netns suite runs nightly. Write timing tests with `testing/synctest`, not sleeps.
 - **Releases:** pushing a `v*` tag runs `release.yml`. After tagging, set the new tag everywhere the fixture's release is written (the Dockerfile's header comment and the `dbfixture` stage's `RELEASE`; the comment and `Version` in `internal/store/testdata/genfixture/main.go`; `lastRelease` in `internal/store/upgrade_test.go`; the fixture's file name in the store schema rule above), regenerate the fixture with `dbfixture`, delete the old one and commit.
 
 ## Project policies
