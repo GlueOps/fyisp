@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "packageRules": [
+    {
+      "description": "go.mod's replace directives must stay exactly what the pinned cloudflared declares (TestReplaceDirectivesMatchCloudflared); they move only with a cloudflared bump, see AGENTS.md",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/chungthuang/quic-go",
+        "github.com/ipostelnik/cli/v2",
+        "gopkg.in/yaml.v3"
+      ],
+      "enabled": false
+    }
+  ]
+}
