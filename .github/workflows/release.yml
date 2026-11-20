@@ -97,13 +97,15 @@ jobs:
           (plus \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`).
 
           EOF
+          # Releases are immutable once published: a re-run has nothing to add.
+          draft=$(gh release view "$VERSION" --json isDraft --jq .isDraft)
+          if [ "$draft" != true ]; then
+            echo "$VERSION is already published"
+            exit 0
+          fi
           # release-please wrote the changelog as the draft's body: keep it below
-          # the install notes. On a re-run the body already has them.
-          body=$(gh release view "$VERSION" --json body --jq .body)
-          case "$body" in
-            'Run without installing'*) printf '%s\n' "$body" > notes.md;;
-            *) printf '%s\n' "$body" >> notes.md;;
-          esac
+          # the install notes.
+          gh release view "$VERSION" --json body --jq .body >> notes.md
           gh release upload "$VERSION" dist/* --clobber
           gh release edit "$VERSION" --draft=false --title "fyisp $VERSION" --notes-file notes.md
 
