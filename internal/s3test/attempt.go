@@ -144,7 +144,7 @@ func (e *Engine) do(ctx context.Context, t *Target, r request, c *conn, keep boo
 		switch {
 		case ctx.Err() != nil:
 			return errCancelled
-		case !hardTotal.IsZero() && !time.Now().Before(hardTotal):
+		case !hardTotal.IsZero() && (!time.Now().Before(hardTotal) || c.pastHard.Load()):
 			// Past the bound, whatever the error says: a read cut by its
 			// deadline can leave a partial status line that parses as junk.
 			return errTotal
@@ -206,6 +206,7 @@ func (e *Engine) do(ctx context.Context, t *Target, r request, c *conn, keep boo
 	}
 	if total > 0 {
 		hardTotal = time.Now().Add(total)
+		c.pastHard.Store(false)
 		c.hard.Store(hardTotal.UnixNano())
 		defer c.hard.Store(0)
 	}

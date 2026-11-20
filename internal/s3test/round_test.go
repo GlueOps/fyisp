@@ -609,6 +609,30 @@ func TestEndlessHeaders(t *testing.T) {
 	}
 }
 
+// TestPastHard: a read the hard deadline ends is noted as such, whatever a
+// clock says then (the timer, armed from the wall clock, can fire a little
+// before the bound in monotonic time: macOS runners). A read its own
+// timeout ends is not.
+func TestPastHard(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		read, hardIn time.Duration
+		want         bool
+	}{{"hard", time.Minute, 50 * time.Millisecond, true}, {"own", 50 * time.Millisecond, time.Minute, false}} {
+		a, b := net.Pipe()
+		defer a.Close()
+		defer b.Close()
+		c := &conn{tcp: a, nc: a, readTimeout: tc.read, now: time.Now}
+		c.hard.Store(time.Now().Add(tc.hardIn).UnixNano())
+		if _, err := c.Read(make([]byte, 1)); !isTimeout(err) {
+			t.Fatalf("%s: read: %v", tc.name, err)
+		}
+		if got := c.pastHard.Load(); got != tc.want {
+			t.Errorf("%s: pastHard %v", tc.name, got)
+		}
+	}
+}
+
 // TestSlowHeaders: a server that sends its head a byte at a time, each
 // within the read deadline, fails a small request at its bound.
 func TestSlowHeaders(t *testing.T) {
@@ -633,16 +657,14 @@ func TestSlowHeaders(t *testing.T) {
 	}()
 	l := newLab(t, false)
 	l.rt.Creds = nil
-	// Each byte is well within the 10 s read deadline. Long enough for the first
-	// bytes to arrive on a stalled runner: with none, the class is a reset.
-	l.e.o.lim.small = 2 * time.Second
+	l.e.o.lim.small = 500 * time.Millisecond // each byte is well within the 10 s read deadline
 	l.e.o.Dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, network, ln.Addr().String())
 	}
 	start := time.Now()
 	c := l.e.Check(context.Background(), l.rt)
-	if c.Attempt.Class != string(ClassTimeoutTotal) || time.Since(start) > 6*time.Second {
+	if c.Attempt.Class != string(ClassTimeoutTotal) || time.Since(start) > 3*time.Second {
 		t.Errorf("class %q after %v", c.Attempt.Class, time.Since(start))
 	}
 }
