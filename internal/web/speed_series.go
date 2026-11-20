@@ -20,8 +20,11 @@ import (
 
 const (
 	// seriesMinTests is the fewest finished tests a usual point holds: the
-	// step grows until every line has that many.
-	seriesMinTests = 6
+	// step grows until every line has that many. 4 gives a region tested
+	// hourly 6 h points (never 3 h, which would hold two tests of one of its
+	// two providers and one of the other) and a server tested every few
+	// hours 12 h points.
+	seriesMinTests = 4
 	// seriesPooledStep is the pooled line's finest step: in mode regions
 	// most regions alternate two providers hourly, so an hour holds half of
 	// the servers and two hours hold them all.

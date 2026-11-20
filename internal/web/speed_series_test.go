@@ -118,12 +118,12 @@ func TestSpeedSeriesRules(t *testing.T) {
 		t.Errorf("the point after to: %d %v", l.N[24], l.DownBps[24])
 	}
 
-	// Targets: the median, on a step with 6 tests in a usual point; several lines share the coarsest.
+	// Targets: the median, on a step with 4 tests in a usual point; several lines share the coarsest.
 	out = speedSeriesOf(ts, speedParams{from: day, to: day.Add(48 * time.Hour), points: 1000, zone: zone, targets: []string{"us-east", "uk"}}, st, names, day)
-	if len(out.Series) != 2 || out.Series[0].ID != "us-east" || out.Series[0].Kind != "region" || out.Series[1].Label != "UK" || out.Step != (2*time.Hour).Milliseconds() {
+	if len(out.Series) != 2 || out.Series[0].ID != "us-east" || out.Series[0].Kind != "region" || out.Series[1].Label != "UK" || out.Step != time.Hour.Milliseconds() {
 		t.Fatalf("targets: step %d %+v", out.Step, out.Series)
 	}
-	if u := out.Series[0]; u.Usual != 8 || *u.DownBps[5] != 300e6 || u.N[5] != 2 {
+	if u := out.Series[0]; u.Usual != 4 || *u.DownBps[10] != 300e6 || u.N[10] != 1 {
 		t.Errorf("us-east: usual %d, thin point %v n %d", u.Usual, u.DownBps[5], u.N[5])
 	}
 	var hourly []model.SpeedTest
@@ -165,7 +165,7 @@ func TestSpeedSeriesHTTP(t *testing.T) {
 	}
 	var s speedSeriesJSON
 	get("/api/speed?part=series&from=now-7d&tz=Europe/Berlin", &s)
-	if len(s.Series) != 1 || s.Series[0].Kind != "pooled" || s.Step != (3*time.Hour).Milliseconds() || s.To != speedNow.UnixMilli() || s.DownMax == nil {
+	if len(s.Series) != 1 || s.Series[0].Kind != "pooled" || s.Step != (2*time.Hour).Milliseconds() || s.To != speedNow.UnixMilli() || s.DownMax == nil {
 		t.Errorf("pooled: step %d, %+v", s.Step, s.Series)
 	}
 	// The rig's Test now results (900 Mbit/s, its own server) are not in the lines.
