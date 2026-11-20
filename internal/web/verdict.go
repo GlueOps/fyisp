@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // VerdictSource is what the verdict banner and the outage log read. The

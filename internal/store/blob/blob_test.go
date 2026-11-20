@@ -6,8 +6,8 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/store/blob"
-	"github.com/fuck-you-isp/fyisp/internal/store/synth"
+	"github.com/glueops/fyisp/internal/store/blob"
+	"github.com/glueops/fyisp/internal/store/synth"
 )
 
 // randBlock builds a block exercising every slot kind and value extremes.

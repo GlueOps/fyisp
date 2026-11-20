@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 // profileNames is --profile: profile names, repeatable or comma-separated.

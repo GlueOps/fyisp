@@ -16,7 +16,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // testCatalog: a metro of three providers with a nearby city, a far

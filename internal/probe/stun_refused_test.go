@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestUDPRefused: a closed port answers with ICMP port unreachable, which a

@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Traceroutes. *SQLite implements trace.Sink:

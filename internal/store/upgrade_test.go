@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // lastRelease is the release whose database testdata/<lastRelease>.db is:

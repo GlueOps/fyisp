@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // Finding 4: a fresh start at 10:40 viewed over 30 minutes shows no "not

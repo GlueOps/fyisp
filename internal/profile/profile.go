@@ -67,7 +67,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // minInterval is the shortest probe interval a profile may ask for.

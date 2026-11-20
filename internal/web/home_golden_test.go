@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/web/homescen"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/web/homescen"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files (TestHomeGolden, TestSpeedGolden)")

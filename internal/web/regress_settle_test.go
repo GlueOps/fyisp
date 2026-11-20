@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // Finding 5: a slot whose probe may still be running (it fires up to one

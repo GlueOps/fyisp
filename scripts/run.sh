@@ -6,7 +6,7 @@
 # arguments. Nothing is installed; the download is deleted when fyisp exits
 # (fyisp's data stays in its data directory).
 #
-#   curl --proto '=https' --tlsv1.2 -fsSL https://github.com/fuck-you-isp/fyisp/releases/download/<version>/run.sh | sh
+#   curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/download/<version>/run.sh | sh
 #   curl ... | sh -s -- --speedtest      # pass arguments to fyisp
 #
 # Environment:
@@ -23,7 +23,7 @@ main() {
 
 	# Filled in by the release workflow; do not edit by hand.
 	FYISP_VERSION="@FYISP_VERSION@"
-	repo="fuck-you-isp/fyisp"
+	repo="glueops/fyisp"
 
 	say() { printf 'fyisp-run: %s\n' "$*" >&2; }
 	die() {

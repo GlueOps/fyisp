@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 // Episode is one problem: a connection problem with the tiles it hit, or

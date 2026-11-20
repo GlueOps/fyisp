@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestSpeedGolden pins the speed metrics (testdata/speed.golden): the

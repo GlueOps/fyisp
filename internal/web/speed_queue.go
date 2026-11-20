@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // The speed-test queue's API (docs/SPEEDTEST-API.md, "Queue"): its state,

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/export"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/export"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // storageReportFailures is how many failures the Markdown report lists.

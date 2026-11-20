@@ -19,7 +19,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Sink receives trace results (implemented by the store and the web layer).

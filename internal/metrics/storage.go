@@ -3,7 +3,7 @@ package metrics
 import (
 	"sync"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

@@ -3,7 +3,7 @@ package verdict
 import (
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestInnermostLossyLayer: loss on an inner link shows on every layer

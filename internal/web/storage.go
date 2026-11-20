@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/storage"
 )
 
 // The storage tests' API (docs/STORAGE-API.md; keep the JSON types below

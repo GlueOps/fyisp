@@ -1,6 +1,6 @@
 package main
 
-import "github.com/fuck-you-isp/fyisp/internal/model"
+import "github.com/glueops/fyisp/internal/model"
 
 // probeKeys lists the TCP/HTTPS/ICMP series of the profile (not trace
 // hops), for baselines.

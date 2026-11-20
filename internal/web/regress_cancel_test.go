@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // blockingStore's Panel waits for release or ctx.

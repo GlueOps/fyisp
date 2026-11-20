@@ -4,9 +4,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // view is what the drops and problems look like at one tick.

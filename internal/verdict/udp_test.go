@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // stunHarness is newHarness plus default.yml's STUN targets: four

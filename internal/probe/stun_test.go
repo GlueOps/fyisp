@@ -17,7 +17,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // mappedIP is the "public address" fake STUN servers report. It must never

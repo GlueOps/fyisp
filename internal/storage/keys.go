@@ -4,7 +4,7 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/s3test"
 )
 
 // Keys belong to a campaign, never to a target: an on-demand campaign's

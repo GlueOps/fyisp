@@ -2,7 +2,7 @@ name: release
 # On a v* tag: test, cross-build the release binaries through the Dockerfile,
 # fill the version into the launchers, publish a GitHub release with
 # SHA256SUMS and build provenance attestations, and push the multi-arch image
-# ghcr.io/fuck-you-isp/fyisp:<tag> (and :latest for non-prerelease tags).
+# ghcr.io/glueops/fyisp:<tag> (and :latest for non-prerelease tags).
 on:
   push:
     tags: ['v*']
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/fuck-you-isp/fyisp
+  IMAGE: ghcr.io/glueops/fyisp
 
 jobs:
   binaries:

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/fuck-you-isp/fyisp/internal/tunnel"
+	"github.com/glueops/fyisp/internal/tunnel"
 )
 
 // dashTunnel is --tunnel: the dashboard on a Cloudflare quick tunnel, run

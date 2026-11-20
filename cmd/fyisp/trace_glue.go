@@ -6,11 +6,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/trace"
-	"github.com/fuck-you-isp/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/trace"
+	"github.com/glueops/fyisp/internal/web"
 )
 
 // traceSinks sends traceroute results to several trace sinks.

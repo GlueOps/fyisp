@@ -10,8 +10,8 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/probe"
 )
 
 // Class is how an attempt ended: ClassOK, or a failure. It is stored and

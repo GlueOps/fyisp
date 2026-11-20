@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
-	"github.com/fuck-you-isp/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/web"
 )
 
 // TestTraceModes: what /api/trace's "modes" says per OS.

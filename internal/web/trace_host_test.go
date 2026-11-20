@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // fakeDNS is an injected resolver: names map to addresses; others fail.

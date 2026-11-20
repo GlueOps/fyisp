@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/callq"
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/callq"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Call path (UDP) verdicts. UDP targets send STUN bursts (model.KindUDP and

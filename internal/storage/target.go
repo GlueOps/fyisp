@@ -22,7 +22,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/s3test"
 )
 
 // Limits.

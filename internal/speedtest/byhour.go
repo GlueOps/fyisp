@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/callq"
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/callq"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Speed by hour of day. Congestion shows as a dip at the same hours every

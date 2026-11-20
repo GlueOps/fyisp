@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/metrics"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/s3test/s3fake"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/metrics"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/s3test/s3fake"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/web"
 )
 
 // TestStoragePrivacyEndToEnd runs a storage round with keys against a fake

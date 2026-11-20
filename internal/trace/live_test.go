@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
 )
 
 // TestLiveLoopback traces 127.0.0.1 for real (ping socket or raw socket):

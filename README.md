@@ -9,7 +9,7 @@ Is your internet good enough for calls and work right now, and when it isn't, is
 - **Evidence for your provider.** Every problem of the last 7 days with its time, length and likely cause, on a page with no addresses on it, so a screenshot is safe to send. 90 days of charts and `fyisp export` for the raw numbers.
 - **Private.** Your data stays on your machine. fyisp talks only to the services it checks, your DNS resolver and the routers on the way (for traceroutes), plus speed-test servers, storage endpoints or Cloudflare only if you turn those on; [Privacy](#privacy) lists everything.
 
-fyisp ("F\*\*\* You ISP") is one small program. The default makes 28 checks for homes and remote workers and opens on the plain-words **Home** view. **Technical details** has every number: charts per service, traceroutes, call-quality scores, speed and storage tests, Prometheus metrics, and about 1,400 more endpoints (clouds, CDNs, gaming, regions of the world) [one flag away](docs/PROFILES.md).
+fyisp is one small program. The default makes 28 checks for homes and remote workers and opens on the plain-words **Home** view. **Technical details** has every number: charts per service, traceroutes, call-quality scores, speed and storage tests, Prometheus metrics, and about 1,400 more endpoints (clouds, CDNs, gaming, regions of the world) [one flag away](docs/PROFILES.md).
 
 ## Quick start
 
@@ -20,7 +20,7 @@ Nothing to install: a launcher downloads fyisp, checks it against the release's 
 Open **Terminal** (on macOS, or any terminal on Linux) and paste:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/fuck-you-isp/fyisp/releases/latest/download/run.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh
 ```
 
 ### Windows
@@ -28,7 +28,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/fuck-you-isp/fyisp/rele
 Open **PowerShell** (not Command Prompt) and paste:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/fuck-you-isp/fyisp/releases/latest/download/run.ps1)))
+& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1)))
 ```
 
 On a NAS, a Raspberry Pi or a home server, use [Docker](#docker). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
@@ -61,11 +61,11 @@ Leave the window open: fyisp records only while it runs. **Stop it** with Ctrl-C
 Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell, and after the image name in Docker:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/fuck-you-isp/fyisp/releases/latest/download/run.sh | sh -s -- --profile default,streaming
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --profile default,streaming
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/fuck-you-isp/fyisp/releases/latest/download/run.ps1))) --profile default,streaming
+& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --profile default,streaming
 ```
 
 | Option | What it does |
@@ -83,7 +83,7 @@ On Linux, run the container on the host's network, so that fyisp sees your real 
 ```sh
 (umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
 docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
-  -e FYISP_ADMIN_TOKEN="$(cat fyisp-token)" ghcr.io/fuck-you-isp/fyisp
+  -e FYISP_ADMIN_TOKEN="$(cat fyisp-token)" ghcr.io/glueops/fyisp
 echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
 ```
 
@@ -112,16 +112,16 @@ Open the link the last command prints.
 The launcher is pinned to the release it came from. It downloads the matching binary into a temporary directory, **refuses to run it unless its SHA-256 matches the release's `SHA256SUMS`**, also checks the GitHub build provenance attestation if the [GitHub CLI](https://cli.github.com/) is installed and logged in, and deletes the binary when fyisp exits. To read it before running it:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/fuck-you-isp/fyisp/releases/latest/download/run.sh
+curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/glueops/fyisp/releases/latest/download/run.sh
 less run.sh
 sh run.sh
 ```
 
-Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/fuck-you-isp/fyisp/releases/latest) into one folder, keeping their names, then verify and run it:
+Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/glueops/fyisp/releases/latest) into one folder, keeping their names, then verify and run it:
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing     # macOS: shasum -a 256 -c SHA256SUMS --ignore-missing
-gh attestation verify fyisp-linux-amd64 --repo fuck-you-isp/fyisp   # optional
+gh attestation verify fyisp-linux-amd64 --repo glueops/fyisp   # optional
 chmod +x fyisp-linux-amd64 && ./fyisp-linux-amd64   # use your file's name
 ```
 
@@ -201,16 +201,16 @@ In Terminal (Apple silicon; on an Intel Mac use `fyisp-darwin-amd64`):
 
 ```sh
 mkdir -p ~/.local/bin && cd ~/.local/bin
-curl -fsSLO https://github.com/fuck-you-isp/fyisp/releases/latest/download/fyisp-darwin-arm64
-curl -fsSLO https://github.com/fuck-you-isp/fyisp/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-darwin-arm64
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing && mv fyisp-darwin-arm64 fyisp && chmod +x fyisp
 
 tok=$(openssl rand -hex 16)
-cat > ~/Library/LaunchAgents/io.github.fuck-you-isp.fyisp.plist <<PLIST
+cat > ~/Library/LaunchAgents/io.github.glueops.fyisp.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>io.github.fuck-you-isp.fyisp</string>
+  <key>Label</key><string>io.github.glueops.fyisp</string>
   <key>ProgramArguments</key><array><string>$HOME/.local/bin/fyisp</string><string>--open-browser=false</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -219,12 +219,12 @@ cat > ~/Library/LaunchAgents/io.github.fuck-you-isp.fyisp.plist <<PLIST
   <key>StandardErrorPath</key><string>$HOME/Library/Logs/fyisp.log</string>
 </dict></plist>
 PLIST
-chmod 600 ~/Library/LaunchAgents/io.github.fuck-you-isp.fyisp.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.fuck-you-isp.fyisp.plist
+chmod 600 ~/Library/LaunchAgents/io.github.glueops.fyisp.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.glueops.fyisp.plist
 echo "Sign in once per browser: http://127.0.0.1:3000/#admin=$tok"
 ```
 
-fyisp now starts whenever you log in, with the admin token the last line printed (it is also in the plist). Its log is `~/Library/Logs/fyisp.log`. To stop it for good: `launchctl bootout gui/$(id -u)/io.github.fuck-you-isp.fyisp && rm ~/Library/LaunchAgents/io.github.fuck-you-isp.fyisp.plist`. Downloaded with `curl`, the binary carries no quarantine mark, so Gatekeeper doesn't block it.
+fyisp now starts whenever you log in, with the admin token the last line printed (it is also in the plist). Its log is `~/Library/Logs/fyisp.log`. To stop it for good: `launchctl bootout gui/$(id -u)/io.github.glueops.fyisp && rm ~/Library/LaunchAgents/io.github.glueops.fyisp.plist`. Downloaded with `curl`, the binary carries no quarantine mark, so Gatekeeper doesn't block it.
 
 ### Windows (Task Scheduler)
 
@@ -232,7 +232,7 @@ In PowerShell (on an ARM PC use `fyisp-windows-arm64.exe`):
 
 ```powershell
 $dir = "$env:LOCALAPPDATA\Programs\fyisp"; New-Item -ItemType Directory -Force $dir | Out-Null
-$url = "https://github.com/fuck-you-isp/fyisp/releases/latest/download"
+$url = "https://github.com/glueops/fyisp/releases/latest/download"
 Invoke-WebRequest "$url/fyisp-windows-amd64.exe" -OutFile "$dir\fyisp.exe"
 Invoke-WebRequest "$url/SHA256SUMS" -OutFile "$dir\SHA256SUMS"
 $want = (Select-String -Path "$dir\SHA256SUMS" -Pattern 'fyisp-windows-amd64\.exe$').Line.Split(' ')[0]
@@ -253,12 +253,12 @@ fyisp now starts, hidden, whenever you log in, with the admin token the last lin
 ### Linux (systemd)
 
 ```sh
-curl -fsSLO https://github.com/fuck-you-isp/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
-curl -fsSLO https://github.com/fuck-you-isp/fyisp/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -m 0755 fyisp-linux-amd64 /usr/local/bin/fyisp
 sudo curl --proto '=https' --tlsv1.2 -fsSL -o /etc/systemd/system/fyisp.service \
-  https://raw.githubusercontent.com/fuck-you-isp/fyisp/main/packaging/fyisp.service
+  https://raw.githubusercontent.com/glueops/fyisp/main/packaging/fyisp.service
 sudo systemctl daemon-reload && sudo systemctl enable --now fyisp
 ```
 
@@ -290,7 +290,7 @@ fyisp has no account and no telemetry, and its data stays on your machine. What 
 
 - **The services it checks** see a TCP connection from your public IP address every 15 seconds (STUN servers: a few tiny packets every 5 seconds). No data is sent, nobody logs in, no cookies. The STUN servers include **Microsoft's Teams relay** (`worldaz.tr.teams.microsoft.com`, UDP 3478): a burst of 5 tiny STUN requests every 5 seconds, so Microsoft sees your address around the clock, as Google, Cloudflare and Twilio already did.
 - **Your DNS resolver** sees fyisp look up each service's name about once a minute, all day. That resolver is usually your provider's, a Pi-hole, or **on a work laptop, your employer's**, whose security tools may log every lookup. The default has one target for each of Home's app tiles, including **GitHub, Dropbox, OneDrive, YouTube and Netflix**: lookups for `youtube.com` or `netflix.com` every minute from a work laptop can look like you stream all day, and the Teams relay's name is looked up every minute too. Social sites (part of `--profile common`) and the rest of streaming (`--profile streaming`) stay opt-in.
-- **To leave targets out**, start fyisp with `--config mine.yml`, a file that extends the default and removes them by name; fyisp then neither checks nor looks them up (the format is in [What to measure](docs/PROFILES.md#the---config-file)). In Docker, mount the file and pass `--config` after the image name (e.g. `-v "$PWD/mine.yml:/mine.yml:ro" ghcr.io/fuck-you-isp/fyisp --config /mine.yml`).
+- **To leave targets out**, start fyisp with `--config mine.yml`, a file that extends the default and removes them by name; fyisp then neither checks nor looks them up (the format is in [What to measure](docs/PROFILES.md#the---config-file)). In Docker, mount the file and pass `--config` after the image name (e.g. `-v "$PWD/mine.yml:/mine.yml:ro" ghcr.io/glueops/fyisp --config /mine.yml`).
 
   ```yaml
   # mine.yml
@@ -356,7 +356,7 @@ Everything fyisp serves except the page itself needs the admin token: the dashbo
 - **Docker:** pull the image and recreate the container; the volume keeps your data:
 
   ```sh
-  docker pull ghcr.io/fuck-you-isp/fyisp
+  docker pull ghcr.io/glueops/fyisp
   docker rm -f fyisp
   ```
 

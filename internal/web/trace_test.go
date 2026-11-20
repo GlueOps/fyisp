@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // fakeTrace is a TraceSource over a fixed route with a route change.

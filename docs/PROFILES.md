@@ -48,7 +48,7 @@ fyisp profiles aws                   # the targets of a profile (region, city, c
 fyisp --profile default,streaming    # the default plus streaming (combine profiles: a union)
 fyisp --profile clouds --geo eu      # only the targets of a profile in one region (na sa eu me af as oc)
 FYISP_PROFILE=default,calls fyisp    # the same as --profile default,calls
-docker run ... -e FYISP_PROFILE=default,streaming ghcr.io/fuck-you-isp/fyisp
+docker run ... -e FYISP_PROFILE=default,streaming ghcr.io/glueops/fyisp
 ```
 
 | Profiles | What |
@@ -140,4 +140,4 @@ A target's fields:
 
 `@gateway` and `@isp-edge` as a `host` mean your router and your provider's first hop, found at run time; such targets must be `kinds: [icmp]` and may use a 3-second interval. The format is also described in the package comment of [`internal/profile/profile.go`](../internal/profile/profile.go).
 
-In Docker, mount the file and pass `--config` after the image name: `-v "$PWD/mine.yml:/mine.yml:ro" ghcr.io/fuck-you-isp/fyisp --config /mine.yml`.
+In Docker, mount the file and pass `--config` after the image name: `-v "$PWD/mine.yml:/mine.yml:ro" ghcr.io/glueops/fyisp --config /mine.yml`.

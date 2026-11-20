@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Storage tests (schema v9). The tables hold no host, bucket, key, CA, full

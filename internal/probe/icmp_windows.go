@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Windows: IcmpSendEcho2Ex from iphlpapi.dll works for standard users, needs

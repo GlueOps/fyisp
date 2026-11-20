@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // pinger sends ICMP echo requests. Implementations are safe for concurrent

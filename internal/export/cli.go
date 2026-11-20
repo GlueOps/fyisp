@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Flags registers the `fyisp export` flags on fs (main adds its own, such as

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/tunnel"
+	"github.com/glueops/fyisp/internal/tunnel"
 )
 
 // TestDashTunnel: each connected URL becomes the allowed host name and is

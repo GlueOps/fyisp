@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // burst is one synthetic STUN burst: answered of 5 requests with this median

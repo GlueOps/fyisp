@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestLockChild is the lock holder for TestLock (a re-exec of the test

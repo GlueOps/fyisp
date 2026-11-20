@@ -26,7 +26,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test/s3fake"
+	"github.com/glueops/fyisp/internal/s3test/s3fake"
 )
 
 // The responder runs in the "internet" namespace as a re-exec of the test

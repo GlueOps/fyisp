@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 func (tr *tracer) has(name string, mode model.TraceMode) bool {

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // TestPerfEngineReplay (FYISP_PERF=1, without -race) times the engine's

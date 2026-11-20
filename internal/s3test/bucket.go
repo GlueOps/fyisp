@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // EstimateRound is about how long a round of n targets (keyed of them with

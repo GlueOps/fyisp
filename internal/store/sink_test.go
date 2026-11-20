@@ -1,8 +1,8 @@
 package store_test
 
 import (
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/trace"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/trace"
 )
 
 // The store is the tracer's sink (checked here, not in package store, so

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 func beyondEdge(name string) bool { return name != "Gateway" && name != "ISP edge" }

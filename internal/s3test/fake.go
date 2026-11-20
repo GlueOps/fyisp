@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // fakeRound is RunRound with Options.Fake answering each attempt: the

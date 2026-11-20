@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // TestJobStatus: a sweep's servers while it runs, and after it stopped

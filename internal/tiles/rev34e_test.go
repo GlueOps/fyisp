@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // vModel mimics the verdict engine for an edge losing whole seconds (lost):

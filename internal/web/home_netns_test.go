@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/tiles"
 )
 
 // Cards the netns lab (test/netns, TestHome10) found wrong.

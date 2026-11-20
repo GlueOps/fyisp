@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/metrics"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/metrics"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/web"
 )
 
 // mappedIP is the public address the fake STUN server reports to fyisp.
