@@ -16,7 +16,7 @@ replace github.com/quic-go/quic-go => github.com/chungthuang/quic-go v0.45.1-0.2
 require (
 	github.com/cloudflare/cloudflared v0.0.0-20261021105109-de6376c5af4a
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.20.1
+	github.com/klauspost/compress v1.20.3
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/zerolog v1.20.0
 	go.uber.org/goleak v1.3.0
