@@ -12,7 +12,7 @@
 #   docker build --target livetest -t fyisp-livetest .              # live --tunnel tests: see internal/tunnel/live_test.go
 #   docker build --target s3lab .                                  # storage engine vs RustFS and Garage (s3lab-full: and MinIO)
 
-ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5
+ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
 # The browser image for the UI tests; its Playwright must match test/ui/package.json.
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
 
