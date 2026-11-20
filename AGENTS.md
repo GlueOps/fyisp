@@ -98,6 +98,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 
 - **Docker-outside-of-Docker** (devcontainers, some CI runners): `docker run -v $PWD:/src` mounts a path on the Docker host, not your checkout. Use `--output type=local` stages or `docker cp`.
 - **Per-OS files** (`_windows.go`, `_darwin.go`, ...): `test` vets only `netinfo` for other OSes. Run `GOOS=windows go vet ./...` or rely on the native CI.
+- **Native macOS runners stall** for a second or more with the packages' tests running side by side. Tests over real sockets need wide margins, and a closed loopback port can time out there instead of refusing.
 - **Host allowlist:** the handler answers 421 to unknown Host headers, so tests must set `r.Host`.
 - **SQLite pragmas:** modernc runs `_pragma` DSN values in lexicographic order, so persistent pragmas are set in code (`sqlite.go`), not in the DSN.
 

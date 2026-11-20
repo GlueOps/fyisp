@@ -777,7 +777,8 @@ func TestBytesHonest(t *testing.T) {
 		}
 		settle(f)
 		// A cancel leaves what the three streams' socket buffers held unread
-		// (more than 1 MiB on a loaded macOS runner), so the slack is wider.
+		// (more than 1 MiB on a loaded macOS runner), so the slack is wider,
+		// and the cancel later so that it still means something.
 		if out := f.out.Load(); r.WireBytes < out-4*slack || r.WireBytes > out+4096 {
 			t.Errorf("wire %d, the server sent %d", r.WireBytes, out)
 		}
@@ -810,7 +811,7 @@ func TestBytesHonest(t *testing.T) {
 func TestTimeBackstop(t *testing.T) {
 	f := newFakeServer(t, "deaf")
 	cfg := quick(f.addr(), Download)
-	cfg.Backstop = 2500 * time.Millisecond // the window ends at 2 s
+	cfg.Backstop = 3500 * time.Millisecond // the window ends at 2 s; a stalled runner needs the margin
 	t0 := time.Now()
 	r, err := Run(context.Background(), cfg)
 	if el := time.Since(t0); err != nil || !r.Overrun || r.Elapsed <= 0 || el > stepTimeout || el < cfg.Backstop {
