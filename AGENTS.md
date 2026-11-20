@@ -84,7 +84,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 - **Commits:** Conventional Commits, lowercase, e.g. `feat(web)!: ...`, `fix(ui): ...`, `docs(readme): ...`. `!` marks a breaking change. The body says why.
 - **PRs:** keep them focused. They are merged with merge commits. Open an issue before large changes.
 - **CI** runs the Docker targets above, the UI tests when the UI changes, and native `go test` on Windows and macOS. The netns suite runs nightly. Write timing tests with `testing/synctest`, not sleeps.
-- **Releases:** pushing a `v*` tag runs `release.yml`. After tagging, set the new tag everywhere the fixture's release is written (the Dockerfile's header comment and the `dbfixture` stage's `RELEASE`; the comment and `Version` in `internal/store/testdata/genfixture/main.go`; `lastRelease` in `internal/store/upgrade_test.go`; the fixture's file name in the store schema rule above), regenerate the fixture with `dbfixture`, delete the old one and commit.
+- **Releases:** `release-please.yaml` opens a release PR on `main` once a `feat`, `fix`, `perf`, `revert` or breaking commit has landed (other types ship with the next one and stay out of `CHANGELOG.md`). Before 1.0 a breaking change bumps the minor. Merging the PR creates the `v*` tag and a draft GitHub release; the tag runs `release.yml`, which publishes the draft once the binaries are uploaded. Don't push release tags by hand. After the release, set the new tag everywhere the fixture's release is written (the Dockerfile's header comment and the `dbfixture` stage's `RELEASE`; the comment and `Version` in `internal/store/testdata/genfixture/main.go`; `lastRelease` in `internal/store/upgrade_test.go`; the fixture's file name in the store schema rule above), regenerate the fixture with `dbfixture`, delete the old one and commit.
 
 ## Project policies
 
@@ -110,4 +110,5 @@ Settled choices; reviewers shouldn't re-raise them.
 - **`api/probes` caps at the slowest 5000**, not the first, so a capped answer still shows the worst probes; `complete_above_ms` says what is complete.
 - **"Probes over X ms"** (Details charts) shows only when one target is shown, and only for the panel's main kind. The threshold is typed, not dragged (dragging the plot zooms), starts at the verdict engine's spike rule (3× normal, at least +50 ms) and is kept per target and kind in localStorage, not the URL. The min–max band stays.
 - **GlueOps org, Apache-2.0** (Copyright GlueOps, LLC), module `github.com/glueops/fyisp` (lowercase, like other GlueOps Go modules). Tags up to v0.14.0 keep their earlier module path and MIT license.
+- **No upgrade notes for installs before v0.15.0** (old image name, old macOS launchd label): everyone moves to v0.15.0 or newer.
 - **`dbfixture` can't regenerate the v0.14.0 fixture**, because that tag has the earlier module path. It works again from the next release; don't add a shim.
