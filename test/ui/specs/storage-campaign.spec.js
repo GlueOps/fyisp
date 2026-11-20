@@ -50,6 +50,10 @@ test('one round now: the grid, a failed cell and its attempts', async ({ page })
     const flaky = grid.getByRole('gridcell', { name: /^Flaky edge, round 1 at .*: failed\. \d+ of \d+ attempts: No answer\.$/ });
     await expect(flaky).toHaveText('✕');
     await expect(grid.getByRole('gridcell', { name: /^AWS Virginia, round 1 at .*: all worked\.$/ })).toBeVisible();
+    // The round reached the chart above the grid too: a line per target, as soon as it landed.
+    const time = page.locator('.st-time');
+    await expect(time.locator('.u-over')).toHaveCount(1);
+    await expect(time.locator('.spt-legend button.spt-key')).toHaveCount(4);
     // One tab stop, reached with Tab; arrows move; Enter opens the round.
     await expect(grid.locator('td[tabindex="0"]')).toHaveCount(1);
     await page.getByRole('button', { name: 'Show as table' }).focus();

@@ -199,3 +199,52 @@ func TestStorageCellsCache(t *testing.T) {
 		t.Errorf("reused id: %v", got)
 	}
 }
+
+// TestStorageRoundTimings: every round's medians of the fresh connections
+// that worked, by target; later calls read only the newer rounds.
+func TestStorageRoundTimings(t *testing.T) {
+	s := openT(t, t.TempDir(), Options{})
+	defer s.Close()
+	ex := func(q string) {
+		t.Helper()
+		if _, err := s.db.w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ex(`INSERT INTO storage_campaigns(id, created_ms, updated_ms, shape, state, targets, cold, warm, down_bytes, up_bytes, interval_s) VALUES (1,0,0,'on_demand','done','[]',3,1,0,0,60)`)
+	ex(`INSERT INTO storage_rounds(id, campaign, seq, due_ms, outcome) VALUES (10, 1, 0, 1, 'ok')`)
+	ex(`INSERT INTO storage_attempts(round, target, phase, op, n, at_ms, class, dns_ms, connect_ms, tls_ms, ttfb_ms) VALUES
+		(10,'a','cold','head',0,1,'ok',1,10,20,100),
+		(10,'a','cold','head',1,1,'ok',3,30,NULL,300),
+		(10,'a','cold','head',2,1,'ok',2,20,40,200),
+		(10,'a','cold','head',3,1,'timeout_connect',NULL,NULL,NULL,NULL),
+		(10,'a','warm','head',0,1,'ok',NULL,NULL,NULL,5),
+		(10,'b','cold','get',0,1,'ok',4,40,50,60),
+		(10,'b','cold','get',1,1,'ok',6,60,70,80)`)
+	got, err := s.StorageRoundTimings(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := func(v float64) *float64 { return &v }
+	want := []StorageRoundTiming{
+		{Round: 10, Target: "a", N: 3, DNS: f(2), Connect: f(20), TLS: f(30), TTFB: f(200)},
+		{Round: 10, Target: "b", N: 2, DNS: f(5), Connect: f(50), TLS: f(60), TTFB: f(70)},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v\nwant %+v", got, want)
+	}
+	// A round where nothing worked has no row; the next call adds only the new round.
+	ex(`INSERT INTO storage_rounds(id, campaign, seq, due_ms, outcome) VALUES (11, 1, 1, 2, 'failed'), (12, 1, 2, 3, 'ok')`)
+	ex(`INSERT INTO storage_attempts(round, target, phase, op, n, at_ms, class, ttfb_ms) VALUES (11,'a','cold','head',0,2,'timeout_ttfb',NULL), (12,'a','cold','head',0,3,'ok',7)`)
+	ex(`UPDATE storage_attempts SET ttfb_ms = 999 WHERE round = 10`) // not read again
+	got, err = s.StorageRoundTimings(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || *got[0].TTFB != 200 || got[2].Round != 12 || *got[2].TTFB != 7 || got[2].DNS != nil {
+		t.Errorf("second read %+v", got)
+	}
+	if got, _ := s.StorageRoundTimings(ctx, 2); len(got) != 0 {
+		t.Errorf("another campaign: %+v", got)
+	}
+}

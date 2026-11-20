@@ -39,7 +39,7 @@ const OUTCOME = /** @type {Object<string,string>} */ ({ busy: 'server busy', unr
 function day(/** @type {number} */ ms) { return new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); }
 function when(/** @type {number} */ ms) { return `${day(ms)}, ${clock(ms)}`; }
 /** A round axis top just above v (Mbit/s). */
-function niceCeil(/** @type {number} */ v) {
+export function niceCeil(/** @type {number} */ v) {
   if (!(v > 0)) return 1;
   const p = 10 ** Math.floor(Math.log10(v));
   return ([1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((k) => k * p >= v) || 10) * p;
@@ -270,16 +270,7 @@ export class SpeedTime {
   dash(l, several) { return several ? DASH[(this.slot(l) - 1) % DASH.length] : undefined; }
 
   /** A legend swatch: the line as the plot draws it. @param {SpeedLine} l @param {boolean} several */
-  swatch(l, several) {
-    const dpr = devicePixelRatio || 1;
-    const cv = /** @type {HTMLCanvasElement} */ (h('canvas', { class: 'spt-sw', width: String(Math.round(30 * dpr)), height: String(Math.round(8 * dpr)) }));
-    const ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext('2d'));
-    ctx.strokeStyle = css('--s' + this.slot(l));
-    ctx.lineWidth = 2.5 * dpr;
-    ctx.setLineDash((this.dash(l, several) || []).map((x) => x * dpr * 0.75));
-    ctx.beginPath(); ctx.moveTo(0, 4 * dpr); ctx.lineTo(30 * dpr, 4 * dpr); ctx.stroke();
-    return cv;
-  }
+  swatch(l, several) { return swatch(css('--s' + this.slot(l)), this.dash(l, several)); }
 
   /** @param {SpeedSeries} d */
   renderLegend(d) {
@@ -602,8 +593,20 @@ export class SpeedTime {
   }
 }
 
+/** A legend's mark for a line: a short stroke in its colour and dash. @param {string} colour @param {number[]|undefined} dash */
+export function swatch(colour, dash) {
+  const dpr = devicePixelRatio || 1;
+  const cv = /** @type {HTMLCanvasElement} */ (h('canvas', { class: 'spt-sw', width: String(Math.round(30 * dpr)), height: String(Math.round(8 * dpr)) }));
+  const ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext('2d'));
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = 2.5 * dpr;
+  ctx.setLineDash((dash || []).map((x) => x * dpr * 0.75));
+  ctx.beginPath(); ctx.moveTo(0, 4 * dpr); ctx.lineTo(30 * dpr, 4 * dpr); ctx.stroke();
+  return cv;
+}
+
 /** @param {CanvasRenderingContext2D} ctx @param {number} x @param {number} y @param {string} colour @param {number} dpr */
-function cross(ctx, x, y, colour, dpr) {
+export function cross(ctx, x, y, colour, dpr) {
   const r = 3.5 * dpr;
   ctx.strokeStyle = colour; ctx.lineWidth = 1.6 * dpr; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();

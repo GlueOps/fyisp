@@ -65,9 +65,10 @@ type SQLite struct {
 	lock *dirLock // nil when read-only
 	o    Options
 
-	flushMu  sync.Mutex   // one Flush/Prune at a time
-	cells    cellCache    // StorageCells' last campaign
-	commitMu sync.RWMutex // write: commit + memory update; read: memory snapshot + first query step
+	flushMu  sync.Mutex                     // one Flush/Prune at a time
+	cells    roundCache[StorageCellRow]     // StorageCells' last campaign
+	timings  roundCache[StorageRoundTiming] // StorageRoundTimings' last campaign
+	commitMu sync.RWMutex                   // write: commit + memory update; read: memory snapshot + first query step
 
 	mu        sync.Mutex // guards everything below
 	cur       map[model.SeriesKey]*block

@@ -134,7 +134,7 @@ func TestStoragePrivacyEndToEnd(t *testing.T) {
 	}
 	outputs := map[string]string{
 		"campaign": camp, "round": get("/api/storage?part=round&id=" + rid), "attempts": get("/api/storage?part=attempts&campaign=" + id),
-		"campaigns": get("/api/storage?part=campaigns"), "live": get("/api/storage?part=live"),
+		"campaigns": get("/api/storage?part=campaigns"), "live": get("/api/storage?part=live"), "timings": get("/api/storage?part=timings&id=" + id),
 		"report": get("/api/storage/report?campaign=" + id + "&format=md"), "csv": get("/api/storage/report?campaign=" + id + "&format=csv"),
 		"metrics": get("/metrics"),
 	}

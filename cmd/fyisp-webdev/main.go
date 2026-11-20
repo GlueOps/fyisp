@@ -214,7 +214,7 @@ func main() {
 	noBaselines := flag.Bool("no-baselines", false, "run without baselines (no \"normal\" badges, band or slow line)")
 	noSpeed := flag.Bool("no-speed", false, "run without speed tests (Speed hidden)")
 	speedHist := flag.Duration("speed-history", 0, "speed-test history to generate, e.g. 168h (2 to 90 days; default: the backfill)")
-	storageScen := flag.String("storage", storageTargets, "storage tests: none (Storage hidden), empty (no targets) or targets")
+	storageScen := flag.String("storage", storageTargets, "storage tests: none (Storage hidden), empty (no targets), targets, or history (the targets and a past evening schedule)")
 	callsMode := flag.String("calls", callsGood, "call-path scenario for the Calls view: good, poor or blocked")
 	named := flag.String("profile", "", "named profiles instead of the dev profile, e.g. all (keep -backfill short: every series is in memory)")
 	spikes := flag.Bool("spikes", false, "fixed slow and lost probes on the first TCP service in the last 2 h (needs -backfill 2h or more)")
@@ -364,9 +364,9 @@ func main() {
 		d.Speed = newFakeSpeed(ctx, now, *speedHist, log)
 	}
 	switch *storageScen {
-	case storageNone, storageEmpty, storageTargets:
+	case storageNone, storageEmpty, storageTargets, storageHistory:
 	default:
-		fmt.Fprintf(os.Stderr, "-storage %q: want none, empty or targets\n", *storageScen)
+		fmt.Fprintf(os.Stderr, "-storage %q: want none, empty, targets or history\n", *storageScen)
 		os.Exit(2)
 	}
 	if *storageScen != storageNone {

@@ -12,6 +12,7 @@ import { h, fetchJSON, apiWrite, dialog, clock } from './core.js';
 import { StorageTargets } from './storagetargets.js';
 import { CampaignForm, runOnce, enterKeys, campaignError, size } from './storageform.js';
 import { StorageGrid } from './storagegrid.js';
+import { StorageTime } from './storagetime.js';
 import { FailureLog, historyTable, day } from './storagelog.js';
 import { askPause, activePause, pauseWords } from './speedpause.js';
 import { findingSection, cardsSection, tracesSection, reportSection } from './storageevidence.js';
@@ -111,6 +112,7 @@ export class Storage {
     this.panelEl = h('section', { class: 'st-panel sp-body', 'aria-labelledby': 'st-panel-h', hidden: true });
     this.grid = new StorageGrid({ say: (t) => { this.say.textContent = t; }, name: (id) => this.name(id) });
     this.log = new FailureLog({ name: (id) => this.name(id) });
+    this.time = new StorageTime({ name: (id) => this.name(id) });
     this.resEl = h('div', { class: 'st-res' });
     this.histEl = h('div');
     this.targets = new StorageTargets({
@@ -123,6 +125,9 @@ export class Storage {
     this.el = h('section', { id: 'storage', class: 'storage', 'aria-label': 'Storage tests', hidden: true },
       this.say, this.headEl, this.notesEl, this.panelEl, this.resEl, this.targets.el, this.histEl);
   }
+
+  /** The chart's colours are fixed when it is drawn. */
+  themeChanged() { this.time.themeChanged(); }
 
   /** A target's name, from the summary or the campaign shown. @param {string} id */
   name(id) {
@@ -366,10 +371,12 @@ export class Storage {
     if (key === this.drawn && this.resEl.firstChild) return;
     this.drawn = key;
     this.grid.set(c);
+    this.time.set(c);
     place(this.resEl, [
       h('div', { class: 'st-res-head' }, h('h2', { id: 'st-res-h', tabindex: '-1', text: 'Results' }), h('p', { class: 'muted', text: title }),
         latest && latest !== this.shown ? h('button', { type: 'button', class: 'btn sm', text: 'Show the latest campaign', onclick: () => this.showCampaign(0) }) : null),
       c.finding ? findingSection(c.finding) : null,
+      this.time.el,
       c.cards ? cardsSection(c.cards, (id) => this.name(id), k.targets) : null,
       this.grid.el, this.grid.detail, this.log.el,
       tracesSection(c.traces || [], (id) => this.name(id)),
