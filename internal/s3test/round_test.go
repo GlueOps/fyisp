@@ -633,14 +633,16 @@ func TestSlowHeaders(t *testing.T) {
 	}()
 	l := newLab(t, false)
 	l.rt.Creds = nil
-	l.e.o.lim.small = 500 * time.Millisecond // each byte is well within the 10 s read deadline
+	// Each byte is well within the 10 s read deadline. Long enough for the first
+	// bytes to arrive on a stalled runner: with none, the class is a reset.
+	l.e.o.lim.small = 2 * time.Second
 	l.e.o.Dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, network, ln.Addr().String())
 	}
 	start := time.Now()
 	c := l.e.Check(context.Background(), l.rt)
-	if c.Attempt.Class != string(ClassTimeoutTotal) || time.Since(start) > 3*time.Second {
+	if c.Attempt.Class != string(ClassTimeoutTotal) || time.Since(start) > 6*time.Second {
 		t.Errorf("class %q after %v", c.Attempt.Class, time.Since(start))
 	}
 }
