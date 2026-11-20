@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
 # All building and testing goes through this file: no local Go toolchain needed.
 #   docker build --target test .                                   # vet + tests
 #   docker buildx build --target dist --output type=local,dest=dist .   # all release binaries
