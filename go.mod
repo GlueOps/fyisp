@@ -7,7 +7,7 @@ go 1.27.3
 // Keep in lockstep with the pinned cloudflared version (checked in CI).
 // The cli and quic-go forks are the ones cloudflared builds and tests
 // with (go.sum pins their content); review their diffs on each bump.
-replace github.com/urfave/cli/v2 => github.com/ipostelnik/cli/v2 v2.3.1-0.20210324024421-b6ea8234fe3d
+replace github.com/urfave/cli/v2 => github.com/ipostelnik/cli/v2 v2.3.1-0.20210130150009-92d77844fe1c
 
 replace gopkg.in/yaml.v3 => gopkg.in/yaml.v3 v3.0.1
 
