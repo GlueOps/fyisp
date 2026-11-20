@@ -17,6 +17,10 @@ func TestSeriesBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cairo, err := time.LoadLocation("Africa/Cairo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	at := func(m time.Month, d, h int) time.Time { return time.Date(2026, m, d, h, 0, 0, 0, berlin) }
 	for _, c := range []struct {
 		name     string
@@ -31,6 +35,9 @@ func TestSeriesBounds(t *testing.T) {
 		// 29 March 2026 has no 02:00.
 		{"spring hours", at(3, 29, 0), at(3, 29, 6), time.Hour, 7, time.Hour},
 		{"spring 2 h", at(3, 28, 22), at(3, 29, 8), 2 * time.Hour, 6, 3 * time.Hour},
+		// 24 April 2026 has no midnight in Cairo: the day before's point runs on.
+		{"no midnight", time.Date(2026, 4, 24, 1, 17, 0, 0, cairo), time.Date(2026, 4, 25, 1, 17, 0, 0, cairo), 24 * time.Hour, 3, 47 * time.Hour},
+		{"no midnight 2 h", time.Date(2026, 4, 24, 1, 17, 0, 0, cairo), time.Date(2026, 4, 24, 5, 0, 0, 0, cairo), 2 * time.Hour, 4, 3 * time.Hour},
 		{"utc", time.Date(2026, 1, 1, 5, 30, 0, 0, time.UTC), time.Date(2026, 1, 2, 5, 30, 0, 0, time.UTC), 3 * time.Hour, 10, 3 * time.Hour},
 	} {
 		loc := c.from.Location()
@@ -171,6 +178,18 @@ func TestSpeedSeriesHTTP(t *testing.T) {
 	if len(s.Series) != 2 || s.Series[0].Kind != "region" || s.Series[1].Kind != "server" || s.Series[1].Label != "Your server" || s.Series[1].Usual != 0 || s.Step != (6*time.Hour).Milliseconds() {
 		t.Errorf("targets: step %d, %+v", s.Step, s.Series)
 	}
+	// A server's line holds its own tests only: fewer than its region's, which rotates providers.
+	s = speedSeriesJSON{}
+	get("/api/speed?part=series&from=now-7d&targets=uk,Clouvider-London", &s)
+	sum := func(v []int) (n int) {
+		for _, x := range v {
+			n += x
+		}
+		return n
+	}
+	if reg, srv := sum(s.Series[0].N), sum(s.Series[1].N); len(s.Series) != 2 || s.Series[1].Kind != "server" || s.Series[1].Label != "Clouvider London" || srv == 0 || srv >= reg {
+		t.Errorf("server line: %d of the region's %d tests, %+v", srv, reg, s.Series[1])
+	}
 	var p speedPointsJSON
 	get("/api/speed?part=tests&row=uk&from=now-2d", &p)
 	if p.Kind != "region" || p.Label == "" || len(p.Tests) < 40 || p.Capped || p.CompleteFrom != p.From || len(p.Servers) == 0 {
@@ -229,8 +248,48 @@ func TestSpeedSeriesHTTP(t *testing.T) {
 	}
 	// points is clamped, as on api/panel.
 	s = speedSeriesJSON{}
-	get("/api/speed?part=series&from=now-7d&points=1", &s)
-	if s.Step != (24 * time.Hour).Milliseconds() {
+	get("/api/speed?part=series&from=now-2d&points=1", &s)
+	if s.Step != (6 * time.Hour).Milliseconds() { // 10 points; unclamped it would be a day
 		t.Errorf("points=1: step %d", s.Step)
+	}
+}
+
+// part=tests: the newest speedTestsCap, each with its flags; never a cancelled one.
+func TestSpeedPoints(t *testing.T) {
+	day := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	const own = "10.0.0.2:5201"
+	st := speedtest.State{Regions: []speedtest.Region{{ID: "uk", Title: "UK"}}, Servers: []speedtest.ServerState{{ID: own, Custom: true}}}
+	var ts []model.SpeedTest
+	for i := range speedTestsCap + 1 {
+		ts = append(ts, model.SpeedTest{ID: int64(i + 1), Start: day.Add(time.Duration(i) * time.Minute), Trigger: "schedule", Outcome: model.SpeedOK,
+			Region: "uk", Server: own, DownBps: f(9e8), UpBps: f(4e7)})
+	}
+	ts[1].Extra = `{"rate_method":["whole","whole"],"lower_bound":[true,false]}`
+	ts[2].Extra = `{"rate_method":["whole","whole"],"lower_bound":[false,true]}`
+	ts[3].CappedByServer, ts[3].Fallback, ts[3].Trigger = true, true, "sweep"
+	last := len(ts) - 1
+	ts[last].Outcome, ts[last].DownBps, ts[last].UpBps = model.SpeedCancelled, nil, nil
+	ts = append(ts, model.SpeedTest{ID: 9999, Start: day, Trigger: "schedule", Outcome: model.SpeedOK, Region: "us-east", Server: "elsewhere", DownBps: f(1e8)})
+
+	p := speedParams{row: "uk", from: day, to: day.Add(5 * 24 * time.Hour)}
+	out := speedPoints(ts, p, st, newSpeedNames(st, nil), day)
+	if out.Kind != "region" || out.Label != "UK" || len(out.Tests) != speedTestsCap || out.Capped || out.CompleteFrom != day.UnixMilli() {
+		t.Fatalf("under the cap: %s %q, %d tests, capped %v from %d", out.Kind, out.Label, len(out.Tests), out.Capped, out.CompleteFrom)
+	}
+	if x := out.Tests; !x[1].DownLB || x[1].UpLB || x[2].DownLB || !x[2].UpLB || !x[3].Capped || !x[3].Fallback || !x[3].OnDemand || x[4].Capped || x[4].OnDemand ||
+		x[len(x)-1].ID != int64(speedTestsCap) || out.Servers[own].Label != "Your server" || len(out.Servers) != 1 {
+		t.Errorf("flags: %+v, last %+v, servers %v", x[1:5], x[len(x)-1], out.Servers)
+	}
+	// One more: the oldest goes, and complete_from says where the rest start.
+	ts[last].Outcome, ts[last].DownBps = model.SpeedOK, f(9e8)
+	out = speedPoints(ts, p, st, newSpeedNames(st, nil), day)
+	if len(out.Tests) != speedTestsCap || !out.Capped || out.CompleteFrom != day.Add(time.Minute).UnixMilli() || out.Tests[0].ID != 2 {
+		t.Errorf("capped: %d tests, capped %v, complete from %d, first %d", len(out.Tests), out.Capped, out.CompleteFrom, out.Tests[0].ID)
+	}
+	// By server: the same tests.
+	p.row = own
+	if out = speedPoints(ts, p, st, newSpeedNames(st, nil), day); out.Kind != "server" || out.Label != "Your server" || len(out.Tests) != speedTestsCap {
+		t.Errorf("server: %s %q %d", out.Kind, out.Label, len(out.Tests))
 	}
 }

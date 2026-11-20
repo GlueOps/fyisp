@@ -404,6 +404,18 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 		}
 		return nil
 	}
+	// row reads the one of row=, server= and region= given.
+	row := func() error {
+		for _, k := range []string{"row", "server", "region"} {
+			if v := q.Get(k); v != "" {
+				if p.row != "" || len(v) > 64 {
+					return badReq("one of row, server or region")
+				}
+				p.row = v
+			}
+		}
+		return nil
+	}
 	switch p.part {
 	case "", "summary":
 		p.part = "summary"
@@ -427,15 +439,8 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 		default:
 			return p, badReq("bad exclude_fallback %q: want 0 or 1", x)
 		}
-		ids := 0
-		for _, k := range []string{"row", "server", "region"} {
-			if v := q.Get(k); v != "" {
-				p.row = v
-				ids++
-			}
-		}
-		if ids > 1 || len(p.row) > 64 {
-			return p, badReq("one of row, server or region")
+		if err := row(); err != nil {
+			return p, err
 		}
 	case "windows":
 		if err := only("windows", "days", "tz", "exclude_fallback", "server", "region", "row", "id", "points", "targets"); err != nil {
@@ -454,22 +459,14 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 		if err := tz(); err != nil {
 			return p, err
 		}
-		p.points = DefaultPoints
-		if s := q.Get("points"); s != "" {
-			n, err := strconv.Atoi(s)
-			if err != nil {
-				return p, badReq("bad points %q", s)
-			}
-			p.points = min(max(n, minPoints), MaxPoints)
+		var err error
+		if p.points, err = parsePoints(q); err != nil {
+			return p, err
 		}
 		if q.Has("targets") {
-			raw := q.Get("targets")
-			if len(raw) > speedTargetsMax*65 {
-				return p, badReq("targets: at most %d ids", speedTargetsMax)
-			}
-			p.targets = strings.Split(raw, ",")
+			p.targets = strings.SplitN(q.Get("targets"), ",", speedTargetsMax+2)
 			for i, id := range p.targets {
-				if id == "" || len(id) > 64 || len(p.targets) > speedTargetsMax || slices.Contains(p.targets[:i], id) {
+				if id == "" || i >= speedTargetsMax || slices.Contains(p.targets[:i], id) {
 					return p, badReq("targets: 1 to %d different region or server ids", speedTargetsMax)
 				}
 			}
@@ -481,15 +478,10 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 		if err := span("now-7d"); err != nil {
 			return p, err
 		}
-		for _, k := range []string{"row", "server", "region"} {
-			if v := q.Get(k); v != "" {
-				if p.row != "" {
-					return p, badReq("one of row, server or region")
-				}
-				p.row = v
-			}
+		if err := row(); err != nil {
+			return p, err
 		}
-		if p.row == "" || len(p.row) > 64 {
+		if p.row == "" {
 			return p, badReq("part=tests needs one of row, server or region")
 		}
 	case "running":

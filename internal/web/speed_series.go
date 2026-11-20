@@ -78,16 +78,18 @@ type seriesCell struct {
 
 // seriesCounts reports a test the lines may use.
 func seriesCounts(t *model.SpeedTest) bool {
-	return !t.OnDemand() && t.Outcome != model.SpeedCancelled && t.Trigger != model.TriggerStorage
+	return !t.OnDemand() && t.Outcome != model.SpeedCancelled
 }
 
 // seriesBounds are the points' edges: every step-th wall-clock hour of
 // each local day, from the last one at or before from to the first after
-// to. A day with a DST change has one point shorter or longer.
+// to. A day with a DST change has a point an hour longer or shorter; when
+// the change skips a step hour (midnight in a few zones), the point before
+// it runs on to the next one.
 func seriesBounds(from, to time.Time, step time.Duration, loc *time.Location) []time.Time {
 	y, m, d := from.In(loc).Date()
 	var out []time.Time
-	for day := 0; ; day++ {
+	for day := -1; ; day++ { // from the day before: its last hour may be the one at or before from
 		for h := 0; h < 24; h += int(step / time.Hour) {
 			b := time.Date(y, m, d+day, h, 0, 0, 0, loc)
 			if b.Hour() != h {
@@ -104,10 +106,9 @@ func seriesBounds(from, to time.Time, step time.Duration, loc *time.Location) []
 	}
 }
 
-func seriesCells(ts []model.SpeedTest, bounds []time.Time) []seriesCell {
+func seriesCells(ts []*model.SpeedTest, bounds []time.Time) []seriesCell {
 	cells := make([]seriesCell, len(bounds)-1)
-	for k := range ts {
-		t := &ts[k]
+	for _, t := range ts {
 		i := sort.Search(len(bounds), func(i int) bool { return bounds[i].After(t.Start) }) - 1
 		if i < 0 || i >= len(cells) {
 			continue
@@ -158,7 +159,7 @@ func speedTarget(id string, st speedtest.State, names speedNames) (kind, label s
 func speedSeriesOf(all []model.SpeedTest, p speedParams, st speedtest.State, names speedNames, now time.Time) *speedSeriesJSON {
 	type group struct {
 		line speedLine
-		ts   []model.SpeedTest
+		ts   []*model.SpeedTest
 	}
 	groups := []group{{line: speedLine{Kind: "pooled"}}}
 	if len(p.targets) > 0 {
@@ -183,7 +184,7 @@ func speedSeriesOf(all []model.SpeedTest, p speedParams, st speedtest.State, nam
 		for g := range groups {
 			l := &groups[g].line
 			if l.Kind == "pooled" || (l.Kind == "region" && t.Region == l.ID) || (l.Kind == "server" && t.Server == l.ID) {
-				groups[g].ts = append(groups[g].ts, *t)
+				groups[g].ts = append(groups[g].ts, t)
 				top(&out.DownMax, t.DownBps)
 				top(&out.UpMax, t.UpBps)
 			}
@@ -285,14 +286,13 @@ func speedPoints(all []model.SpeedTest, p speedParams, st speedtest.State, names
 		Servers: map[string]speedPointServer{}, Tests: []speedPoint{}, CompleteFrom: p.from.UnixMilli()}
 	var ts []model.SpeedTest
 	for _, t := range all {
-		if t.Outcome == model.SpeedCancelled || t.Trigger == model.TriggerStorage {
+		if t.Outcome == model.SpeedCancelled {
 			continue
 		}
 		if (kind == "region" && t.Region == p.row) || (kind == "server" && t.Server == p.row) {
 			ts = append(ts, t)
 		}
 	}
-	slices.SortStableFunc(ts, func(a, b model.SpeedTest) int { return a.Start.Compare(b.Start) })
 	if len(ts) > speedTestsCap {
 		ts = ts[len(ts)-speedTestsCap:]
 		out.Capped, out.CompleteFrom = true, ts[0].Start.UnixMilli()

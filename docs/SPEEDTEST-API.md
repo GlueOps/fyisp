@@ -338,7 +338,7 @@ For compare, make one request per row (up to 4).
 
 ## `GET api/speed?part=series&from=...&to=...` (speed over time)
 
-The tests of a range as points on a time axis, in bits per second. `from` and `to` are as for `part=windows` (defaults `now-7d` and `now`, at most 90 days apart); `tz` is as in the summary; `points` is the most points wanted (10 to 2000, default 1000; a value outside is clamped).
+The tests of a range as points on a time axis, in bits per second. `from` and `to` are as for `part=windows` (defaults `now-7d` and `now`, at most 90 days apart); `tz` is the zone the points' hours are in (an IANA name or minutes east of UTC, as the summary takes it); `points` is how many points to aim for at most (10 to 2000, default 1000; a value outside is clamped): it picks the step, which is never longer than a day.
 
 - Without `targets`, one line of kind `pooled`: every scheduled test together.
 - With `targets=<id>,<id>,…` (1 to 8 different region or server ids, 400 otherwise; an unknown id returns 404), one line per id, in that order.
@@ -365,7 +365,7 @@ The tests of a range as points on a time axis, in bits per second. `from` and `t
 
 **Values.** A region's or server's value is the median of its point. The pooled value is the 90th percentile: the faster tests of the point, mostly the nearest servers, which follow the line's own speed (a median would sit on a far server and miss a slowdown above its speed). A pooled point with under half of `usual` has no value (`null`): it holds a different mix of servers. Its counts are still returned. `failed` at or above `n` means the tests ran and mostly did not finish; nothing in `n` and `failed` means no test ran.
 
-**Points.** `step` is the smallest of 1, 2, 3, 6, 12 and 24 hours that gives at most `points` points, then made longer until every line's `usual` is at least 6 (24 hours at most). The pooled line is never finer than 2 hours: in mode `regions` most regions alternate two providers hourly, so one hour holds half of the servers. A range over 60 days uses days. Points start on wall-clock hours of each day in `tz`, so on the day of a DST change one point is an hour longer or shorter: read each point's span from `t`, not from `step`.
+**Points.** `step` is the smallest of 1, 2, 3, 6, 12 and 24 hours that needs no more than `points` points (24 hours when every step needs more), then made longer until every line's `usual` is at least 6 (24 hours at most). The pooled line is never finer than 2 hours: in mode `regions` most regions alternate two providers hourly, so one hour holds half of the servers. A range over 60 days uses days. Points start on wall-clock hours of each day in `tz`, so on the day of a DST change one point is an hour longer or shorter, and where the change skips a point's starting hour (midnight in a few zones) the point before it runs on to the next start. The first point starts at or before `from` and the last ends after `to`. Read each point's span from `t`, not from `step`.
 
 ## `GET api/speed?part=tests&row=<id>&from=...&to=...` (one row's tests)
 
