@@ -81,7 +81,8 @@ func (p *freezingProxy) serve() {
 func TestHTTPSRecoversFromStalledConnection(t *testing.T) {
 	_, port, tc := tlsServer(t, true) // HTTP/2: one shared connection
 	px := newFreezingProxy(t, "127.0.0.1:"+strconv.Itoa(port))
-	r := New(Options{TLSConfig: tc, Timeout: 500 * time.Millisecond, Log: quietLog()}).(*runner)
+	// Long enough for a TLS handshake on a stalled runner (0.5 s wasn't, on macOS).
+	r := New(Options{TLSConfig: tc, Timeout: 2 * time.Second, Log: quietLog()}).(*runner)
 	s := &series{host: newHostState("127.0.0.1"), port: px.port(), url: httpsURL("127.0.0.1", px.port(), "/")}
 	s.client.Store(r.newClient(s))
 	ctx := context.Background()
