@@ -82,7 +82,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 ## Conventions
 
 - **Commits:** Conventional Commits, lowercase, e.g. `feat(web)!: ...`, `fix(ui): ...`, `docs(readme): ...`. `!` marks a breaking change. The body says why.
-- **PRs:** keep them focused. They are merged with merge commits. Open an issue before large changes.
+- **PRs:** keep them focused. They are squash-merged, so the PR title becomes the commit on `main` and must be a Conventional Commit (release-please loses commits behind merge commits). Open an issue before large changes.
 - **CI** runs the Docker targets above, the UI tests when the UI changes, and native `go test` on Windows and macOS. The netns suite runs nightly. Write timing tests with `testing/synctest`, not sleeps.
 - **Releases:** `release-please.yaml` opens a release PR on `main` once a `feat`, `fix`, `perf`, `revert` or breaking commit has landed (other types ship with the next one and stay out of `CHANGELOG.md`). Before 1.0 a breaking change bumps the minor. Merging the PR creates the `v*` tag and a draft GitHub release; the tag runs `release.yml`, which publishes the draft once the binaries are uploaded. Don't push release tags by hand. After the release, set the new tag everywhere the fixture's release is written (the Dockerfile's header comment and the `dbfixture` stage's `RELEASE`; the comment and `Version` in `internal/store/testdata/genfixture/main.go`; `lastRelease` in `internal/store/upgrade_test.go`; the fixture's file name in the store schema rule above), regenerate the fixture with `dbfixture`, delete the old one and commit.
 
