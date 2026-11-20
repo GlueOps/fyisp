@@ -58,7 +58,7 @@ jobs:
       - name: Playwright smoke and UI specs
         if: steps.changed.outputs.run == 'true'
         run: docker buildx build --target uitest-report --output type=local,dest=ui-out . && test "$(cat ui-out/status)" = 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.changed.outputs.run == 'true'
         with:
           name: ui-report
