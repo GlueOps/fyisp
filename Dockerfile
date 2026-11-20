@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 # All building and testing goes through this file: no local Go toolchain needed.
 #   docker build --target test .                                   # vet + tests
 #   docker buildx build --target dist --output type=local,dest=dist .   # all release binaries
@@ -101,7 +101,7 @@ FROM source AS livetest-build
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go test -c -race -o /tunnel.test ./internal/tunnel
-FROM debian:stable-slim AS livetest
+FROM debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0 AS livetest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iptables && rm -rf /var/lib/apt/lists/*
 COPY --from=livetest-build /tunnel.test /tunnel.test
 ENTRYPOINT ["/tunnel.test"]
@@ -195,7 +195,7 @@ if [ "$TARGETARCH" = arm ]; then arm=7; name=fyisp-$TARGETOS-armv7; fi
 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=$arm go build -ldflags "-s -w -X main.version=launcher-test" -o /lt/fyisp ./cmd/fyisp
 echo "$name" > /lt/asset
 SH
-FROM debian:stable-slim AS launchertest
+FROM debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0 AS launchertest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 bash && rm -rf /var/lib/apt/lists/*
 COPY --from=launcher-bin /lt/ /lt/
 COPY scripts/ /lt/scripts/
@@ -208,7 +208,7 @@ COPY scripts/ /lt/scripts/
 RUN sh /lt/scripts/launcher_test.sh /lt/scripts /lt/fyisp "$(cat /lt/asset)" pwsh
 
 # systemd unit lint: docker build --target servicetest .
-FROM debian:stable-slim AS servicetest
+FROM debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0 AS servicetest
 RUN apt-get update && apt-get install -y --no-install-recommends systemd && rm -rf /var/lib/apt/lists/*
 COPY --from=launcher-bin /lt/fyisp /usr/local/bin/fyisp
 COPY packaging/fyisp.service /etc/systemd/system/fyisp.service
@@ -303,7 +303,7 @@ ENTRYPOINT ["/fyisp"]
 # image's root filesystem is run with chroot as the runtime user, because a
 # build step cannot start a container.
 #   docker build --target imagetest .
-FROM debian:stable-slim AS imagetest
+FROM debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0 AS imagetest
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=runtime / /img/
 RUN <<'SH'
