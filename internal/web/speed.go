@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/glueops/fyisp/internal/callq"
@@ -25,6 +26,8 @@ import (
 type SpeedSource interface {
 	State() speedtest.State
 	SpeedTests(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
+	// SpeedSeries is SpeedTests with only what part=series and part=tests read.
+	SpeedSeries(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
 	// SpeedWindows adds the retired tests' bare windows (chart shading).
 	SpeedWindows(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
 	SetMode(ctx context.Context, m speedtest.Mode, extra []string) (time.Time, error)
@@ -46,6 +49,7 @@ const (
 	// (last 24 h) above which the row gets a note.
 	fallbackNote     = 0.5
 	speedTestsCap    = 5000 // tests in one row view
+	speedTargetsMax  = 8    // part=series: the chart's palette has 8 hues
 	defaultTestBytes = 150 << 20
 )
 
@@ -347,12 +351,14 @@ type speedParams struct {
 	excludeFallback bool
 	row             string
 	from, to        time.Time
-	entry           uint64 // part=entry
+	entry           uint64   // part=entry
+	points          int      // part=series
+	targets         []string // part=series: none is every test pooled
 }
 
 func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 	p := speedParams{part: q.Get("part"), days: 7}
-	if err := checkParams(q, "part", "days", "tz", "from", "to", "exclude_fallback", "server", "region", "row", "id"); err != nil {
+	if err := checkParams(q, "part", "days", "tz", "from", "to", "exclude_fallback", "server", "region", "row", "id", "points", "targets"); err != nil {
 		return p, err
 	}
 	if q.Has("id") && p.part != "entry" {
@@ -374,10 +380,34 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 		p.zone, p.tz = z, z.min
 		return nil
 	}
+	// span reads from= and to= (def: from's default), at most MaxRange apart.
+	span := func(def string) error {
+		fs, ts := q.Get("from"), q.Get("to")
+		if fs == "" {
+			fs = def
+		}
+		if ts == "" {
+			ts = "now"
+		}
+		var err error
+		if p.from, err = parseTime(fs, now); err != nil {
+			return err
+		}
+		if p.to, err = parseTime(ts, now); err != nil {
+			return err
+		}
+		if !p.from.Before(p.to) {
+			return badReq("from must be before to")
+		}
+		if p.to.Sub(p.from) > MaxRange {
+			return badReq("range longer than %d days", int(MaxRange/(24*time.Hour)))
+		}
+		return nil
+	}
 	switch p.part {
 	case "", "summary":
 		p.part = "summary"
-		if err := only("summary", "from", "to", "id"); err != nil {
+		if err := only("summary", "from", "to", "id", "points", "targets"); err != nil {
 			return p, err
 		}
 		switch d := q.Get("days"); d {
@@ -408,35 +438,66 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 			return p, badReq("one of row, server or region")
 		}
 	case "windows":
-		if err := only("windows", "days", "tz", "exclude_fallback", "server", "region", "row", "id"); err != nil {
+		if err := only("windows", "days", "tz", "exclude_fallback", "server", "region", "row", "id", "points", "targets"); err != nil {
 			return p, err
 		}
-		fs, ts := q.Get("from"), q.Get("to")
-		if fs == "" {
-			fs = "now-30m"
-		}
-		if ts == "" {
-			ts = "now"
-		}
-		var err error
-		if p.from, err = parseTime(fs, now); err != nil {
+		if err := span("now-30m"); err != nil {
 			return p, err
 		}
-		if p.to, err = parseTime(ts, now); err != nil {
+	case "series":
+		if err := only("series", "days", "exclude_fallback", "server", "region", "row", "id"); err != nil {
 			return p, err
 		}
-		if !p.from.Before(p.to) {
-			return p, badReq("from must be before to")
+		if err := span("now-7d"); err != nil {
+			return p, err
 		}
-		if p.to.Sub(p.from) > MaxRange {
-			return p, badReq("range longer than %d days", int(MaxRange/(24*time.Hour)))
+		if err := tz(); err != nil {
+			return p, err
+		}
+		p.points = DefaultPoints
+		if s := q.Get("points"); s != "" {
+			n, err := strconv.Atoi(s)
+			if err != nil {
+				return p, badReq("bad points %q", s)
+			}
+			p.points = min(max(n, minPoints), MaxPoints)
+		}
+		if q.Has("targets") {
+			raw := q.Get("targets")
+			if len(raw) > speedTargetsMax*65 {
+				return p, badReq("targets: at most %d ids", speedTargetsMax)
+			}
+			p.targets = strings.Split(raw, ",")
+			for i, id := range p.targets {
+				if id == "" || len(id) > 64 || len(p.targets) > speedTargetsMax || slices.Contains(p.targets[:i], id) {
+					return p, badReq("targets: 1 to %d different region or server ids", speedTargetsMax)
+				}
+			}
+		}
+	case "tests":
+		if err := only("tests", "days", "tz", "exclude_fallback", "id", "points", "targets"); err != nil {
+			return p, err
+		}
+		if err := span("now-7d"); err != nil {
+			return p, err
+		}
+		for _, k := range []string{"row", "server", "region"} {
+			if v := q.Get(k); v != "" {
+				if p.row != "" {
+					return p, badReq("one of row, server or region")
+				}
+				p.row = v
+			}
+		}
+		if p.row == "" || len(p.row) > 64 {
+			return p, badReq("part=tests needs one of row, server or region")
 		}
 	case "running":
-		if err := only(p.part, "days", "tz", "exclude_fallback", "server", "region", "row", "from", "to", "id"); err != nil {
+		if err := only(p.part, "days", "tz", "exclude_fallback", "server", "region", "row", "from", "to", "id", "points", "targets"); err != nil {
 			return p, err
 		}
 	case "queue", "sweep", "entry":
-		if err := only("summary or windows", "days", "tz", "exclude_fallback", "server", "region", "row", "from", "to"); err != nil {
+		if err := only("summary, windows, series or tests", "days", "tz", "exclude_fallback", "server", "region", "row", "from", "to", "points", "targets"); err != nil {
 			return p, err
 		}
 		if p.part == "entry" {
@@ -447,7 +508,7 @@ func parseSpeed(q url.Values, now time.Time) (speedParams, error) {
 			p.entry = id
 		}
 	default:
-		return p, badReq("bad part %q: want summary, windows, running, queue, entry or sweep", p.part)
+		return p, badReq("bad part %q: want summary, windows, series, tests, running, queue, entry or sweep", p.part)
 	}
 	return p, nil
 }
@@ -489,6 +550,25 @@ func (s *server) serveSpeed(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			return jsonCached(out)
+		})
+		return
+	}
+	if p.part == "series" || p.part == "tests" {
+		for _, id := range append(slices.Clone(p.targets), p.row) {
+			if id != "" && !rowKnown(id, st) {
+				writeErr(w, r, http.StatusNotFound, errNoSpeedID.Error())
+				return
+			}
+		}
+		s.runCached(w, r, "speed", func(ctx context.Context) (*cached, error) {
+			ts, err := s.d.Speed.SpeedSeries(ctx, p.from, p.to)
+			if err != nil {
+				return nil, err
+			}
+			if p.part == "tests" {
+				return jsonCached(speedPoints(ts, p, st, names, now))
+			}
+			return jsonCached(speedSeriesOf(ts, p, st, names, now))
 		})
 		return
 	}

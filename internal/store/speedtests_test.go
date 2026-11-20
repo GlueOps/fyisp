@@ -41,6 +41,26 @@ func TestSpeedTests(t *testing.T) {
 	if got[1].DownBps != nil || got[1].UpRetrans != nil || got[1].ScoreDown != nil {
 		t.Error("nulls not kept")
 	}
+	// SpeedSeries: the same tests with the chart's fields only; Extra only with a lower bound.
+	lb := model.SpeedTest{Start: now.Add(-20 * time.Minute), End: now.Add(-19 * time.Minute), Trigger: "schedule", Outcome: model.SpeedOK,
+		FallbackLevel: "none", Region: "oceania", Server: "OVH-Sydney", DownBps: &f, UpBps: &f, Extra: `{"rate_method":["whole",""],"lower_bound":[true,false]}`}
+	if err := s.SaveSpeedTest(ctx, &lb); err != nil {
+		t.Fatal(err)
+	}
+	sr, err := s.SpeedSeries(ctx, now.Add(-2*time.Hour), now)
+	if err != nil || len(sr) != 3 {
+		t.Fatalf("series %v %v", sr, err)
+	}
+	if x := sr[0]; x.ID != full.ID || !x.Start.Equal(full.Start) || x.Trigger != "schedule" || x.Region != "uk" || x.Server != "Clouvider-London" || !x.CappedByServer ||
+		*x.DownBps != f || *x.UpBps != f || x.Extra != "" || x.Latency != nil || x.Handoff != nil || x.Port != 0 || x.ScoreDown != nil {
+		t.Errorf("series row %+v", x)
+	}
+	if x := sr[1]; x.Outcome != model.SpeedBusy || !x.Fallback || x.DownBps != nil || x.Trigger != "manual" {
+		t.Errorf("series busy row %+v", x)
+	}
+	if sr[2].Extra != lb.Extra {
+		t.Errorf("series lower bound: extra %q", sr[2].Extra)
+	}
 	if b, err := s.BytesSince(ctx, now.Add(-2*time.Hour)); err != nil || b != 140<<20 {
 		t.Errorf("bytes %d %v", b, err)
 	}
@@ -64,7 +84,7 @@ func TestSpeedTests(t *testing.T) {
 	if err := s.Prune(ctx, now.Add(-90*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if all, _ := s.SpeedTests(ctx, time.Time{}, now); len(all) != 2 {
+	if all, _ := s.SpeedTests(ctx, time.Time{}, now); len(all) != 3 {
 		t.Errorf("after prune: %d tests", len(all))
 	}
 }
@@ -90,6 +110,9 @@ func TestRetireSpeedTestServers(t *testing.T) {
 	}
 	if n, err := s.RetireSpeedTestServers(ctx, nil); n != 0 || err != nil {
 		t.Errorf("none: %d %v", n, err)
+	}
+	if sr, _ := s.SpeedSeries(ctx, time.Time{}, now); len(sr) != 1 || sr[0].Server != "Leaseweb-Dallas" {
+		t.Errorf("series %+v", sr)
 	}
 	if all, _ := s.SpeedTests(ctx, time.Time{}, now); len(all) != 1 || all[0].Server != "Leaseweb-Dallas" {
 		t.Errorf("tests %+v", all)

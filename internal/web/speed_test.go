@@ -197,13 +197,16 @@ func speedHandlers(t *testing.T, g *speedRig, o LocalOptions) (*localHandler, De
 
 var speedHost = map[string]string{"Host": "127.0.0.1:3000"}
 
-// TestSpeedGolden pins api/speed's summary (7 days, a 2-hour time zone; a
+// TestSpeedGolden pins api/speed's summary, part=series and part=tests (7 days, a 2-hour time zone; a
 // test every 5 hours keeps the file small): go test ./internal/web -run
 // TestSpeedGolden -update.
 func TestSpeedGolden(t *testing.T) {
 	loc, _ := speedHandlers(t, newSpeedRig(t, 5*time.Hour), LocalOptions{})
 	for name, raw := range map[string]string{
-		"local": do(loc, "GET", "/api/speed?days=7&tz=120", speedHost).Body.String(),
+		"local":  do(loc, "GET", "/api/speed?days=7&tz=120", speedHost).Body.String(),
+		"series": do(loc, "GET", "/api/speed?part=series&from=now-7d&tz=120", speedHost).Body.String(),
+		"lines":  do(loc, "GET", "/api/speed?part=series&from=now-7d&tz=120&targets=uk,192.168.1.20:5201", speedHost).Body.String(),
+		"tests":  do(loc, "GET", "/api/speed?part=tests&row=uk&from=now-2d", speedHost).Body.String(),
 	} {
 		var v any
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {

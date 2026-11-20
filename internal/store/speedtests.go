@@ -91,6 +91,33 @@ func (s *SQLite) SpeedTests(ctx context.Context, from, to time.Time) ([]model.Sp
 	return s.speedTests(ctx, from, to, false)
 }
 
+// SpeedSeries is SpeedTests for a chart over time: only the id, start,
+// trigger, outcome, region, server, fallback, capped flag and speeds are
+// filled, and Extra only when it holds a lower bound. About a third of
+// SpeedTests' time and a quarter of its memory over 90 days.
+func (s *SQLite) SpeedSeries(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error) {
+	rows, err := s.db.r.QueryContext(ctx, `SELECT id, start_ms, trigger, outcome, region, server, fallback, capped_server, down_bps, up_bps,
+		CASE WHEN extra LIKE '%lower_bound%' THEN extra ELSE '' END
+		FROM speedtests WHERE start_ms >= ? AND start_ms <= ? AND outcome <> ? ORDER BY start_ms, id`,
+		from.UnixMilli(), to.UnixMilli(), model.SpeedRemoved)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.SpeedTest
+	for rows.Next() {
+		var t model.SpeedTest
+		var start int64
+		var down, up sql.NullFloat64
+		if err := rows.Scan(&t.ID, &start, &t.Trigger, &t.Outcome, &t.Region, &t.Server, &t.Fallback, &t.CappedByServer, &down, &up, &t.Extra); err != nil {
+			return nil, err
+		}
+		t.Start, t.DownBps, t.UpBps = msTime(start), ptrF(down), ptrF(up)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // SpeedWindows is SpeedTests with the retired tests and the storage
 // rounds' transfers (trigger model.TriggerStorage): every window a test
 // loaded the line in (chart shading, Home attribution).
