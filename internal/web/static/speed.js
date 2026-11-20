@@ -90,7 +90,7 @@ export class Speed {
     this.progEl = h('div', { class: 'sp-prog', hidden: true });
     this.bodyEl = h('div', { class: 'sp-body' });
     this.time = new SpeedTime();
-    this.map = new SpeedMap(host, this.time.el);
+    this.map = new SpeedMap(host, this.time.el, (id) => this.time.show(id));
     this.el = h('section', { id: 'speed', class: 'speed', 'aria-label': 'Speed tests', hidden: true },
       this.say, this.headEl, this.progEl, this.queue.el, this.bodyEl, this.map.el, this.queue.sweepEl);
   }

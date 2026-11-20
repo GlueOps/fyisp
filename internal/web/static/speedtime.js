@@ -1,19 +1,24 @@
 // Details → Speed: speed over time (api/speed?part=series). Download and
 // upload in Mbit/s on two panels that share the time axis: by default one
 // line of every scheduled test's faster results, or a line for each of up
-// to 8 regions or servers. Its own range, separate from the heatmap's
+// to 8 regions or servers. With one target and few enough tests in the
+// window, its tests too (api/speed?part=tests), each drawn as a point over
+// the line. Its own range, separate from the heatmap's
 // span; a drag zooms (the window is asked for again, finer), a double
 // click or the Zoomed button zooms out. uPlot is loaded as a classic
 // deferred script before this module runs (window.uPlot), as app.js uses it.
 // Plain ES module, no build step.
 // @ts-check
 
-import { h, fetchJSON, css, showTip, hideTip, tzParam, fmtMbps, fmtStep, clock, dialog } from './core.js';
+import { h, fetchJSON, css, showTip, hideTip, tzParam, fmtMbps, fmtStep, clock, dialog, smooth } from './core.js';
+import { SHAPES, SHAPE_CHAR, mark } from './speedmap.js';
 
 /** @typedef {import('./speed.js').SpeedSummary} SpeedSummary */
 /** @typedef {import('./speed.js').SpeedServer} SpeedServer */
 /** @typedef {{id:string,kind:string,label:string,usual:number,down_bps:(number|null)[],up_bps:(number|null)[],n:number[],up_n:number[],failed:number[],down_lb:number[],up_lb:number[]}} SpeedLine */
 /** @typedef {{at:number,from:number,to:number,step:number,t:number[],end:number,down_max:number|null,up_max:number|null,series:SpeedLine[]}} SpeedSeries */
+/** @typedef {{id:number,start:number,outcome:string,server:string,down_bps:number|null,up_bps:number|null,down_lb?:boolean,up_lb?:boolean,fallback?:boolean,on_demand?:boolean,capped_by_server?:boolean}} SpeedPoint */
+/** @typedef {{id:string,kind:string,label:string,servers:Object<string,{label:string,provider:string}>,tests:SpeedPoint[],capped:boolean,complete_from:number}} SpeedPoints */
 
 const uPlot = /** @type {any} */ (window).uPlot;
 const FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -24,6 +29,11 @@ const MIN_ZOOM = { pooled: 12 * 3600e3, targets: 24 * 3600e3 };
 // A second cue beside the colour, by slot. Never dots: those mean "at least".
 const DASH = [undefined, [8, 4], [16, 5], [10, 4, 3, 4]];
 const AT_LEAST = [1.5, 4];
+// One target's tests are each drawn as a point while they stay apart: about
+// 0.6 to a pixel of the plot (a server's 90 days on a wide screen; a region's
+// becomes a band of marks well before that), and always this many.
+const POINTS_PER_PX = 0.6, POINTS_MIN = 200;
+const OUTCOME = /** @type {Object<string,string>} */ ({ busy: 'server busy', unreachable: 'didn’t answer', failed: 'didn’t finish' });
 
 /** "Mon, Nov 16". */
 function day(/** @type {number} */ ms) { return new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); }
@@ -68,6 +78,8 @@ export class SpeedTime {
     this.d = null;
     /** @type {SpeedSeries|null} */
     this.data = null;
+    /** @type {SpeedPoints|null} one target's tests, when each is drawn as a point */
+    this.tests = null;
     // The fastest tests (bps) of the unzoomed range: the axes hold while zooming.
     this.top = { down: 0, up: 0 };
     this.yTop = { down: 1, up: 1 };
@@ -125,9 +137,20 @@ export class SpeedTime {
     try {
       const d = /** @type {SpeedSeries} */ (await fetchJSON('api/speed?' + q, { signal: ctl.signal }));
       if (ctl.signal.aborted) return;
+      // One target with few enough tests in the window: each of them, too.
+      const l = d.series[0], sum = (/** @type {number} */ a, /** @type {number} */ b) => a + b;
+      /** @type {SpeedPoints|null} */
+      let tests = null;
+      if (d.series.length === 1 && l.kind !== 'pooled' && l.n.reduce(sum, 0) + l.failed.reduce(sum, 0) <= Math.max(POINTS_MIN, POINTS_PER_PX * this.width())) {
+        tests = await fetchJSON('api/speed?' + new URLSearchParams({ part: 'tests', row: l.id, from: String(d.from), to: String(d.to) }), { signal: ctl.signal });
+        if (ctl.signal.aborted) return;
+      }
       this.data = d;
+      this.tests = tests;
       this.err = '';
-      if (!this.zoom) this.top = { down: d.down_max || 0, up: d.up_max || 0 };
+      // The axes hold while zooming: the range's fastest test, an asked-for one among the points included.
+      const most = (/** @type {'down_bps'|'up_bps'} */ k, /** @type {number|null} */ top) => Math.max(top || 0, ...(tests ? tests.tests.map((t) => t[k] || 0) : []));
+      if (!this.zoom) this.top = { down: most('down_bps', d.down_max), up: most('up_bps', d.up_max) };
     } catch (e) {
       if (ctl.signal.aborted) return;
       // A chosen server a release removed: back to every test.
@@ -211,15 +234,19 @@ export class SpeedTime {
     const several = d.series.length > 1;
     const daily = d.step >= 86400e3;
     const stepWord = daily ? '1 day' : fmtStep(d.step).replace('h', ' h');
+    const per = daily ? 'day' : stepWord.replace(' h', ' hours');
+    const T = this.tests;
     this.cornerEl.textContent = several ? `${d.series.length} targets · ${stepWord} per point`
-      : `${stepWord} per point · about ${d.series[0].usual} tests each${daily ? ' · slow evenings are averaged into the day' : ''}`;
+      : T ? `each point is one test · ${T.capped ? 'the newest ' : ''}${T.tests.length} ${T.tests.length === 1 ? 'test' : 'tests'}`
+        : `${stepWord} per point · about ${d.series[0].usual} tests each${daily ? ' · slow evenings are averaged into the day' : ''}${pooled ? '' : ' · zoom in to see each test'}`;
     const lb = !pooled && d.series.some((l) => l.down_lb.some((x, i) => x * 2 > l.n[i]) || l.up_lb.some((x, i) => x * 2 > l.up_n[i]));
     this.capEl.textContent = (pooled
-      ? `Your faster tests in each ${daily ? 'day' : stepWord.replace(' h', ' hours')}, mostly to the nearest servers. It is not your plan’s speed, and it reads higher than Home’s usual speed, which counts every test. Watch for changes.`
+      ? `Your faster tests in each ${per}, mostly to the nearest servers. It is not your plan’s speed, and it reads higher than Home’s usual speed, which counts every test. Watch for changes.`
       : several ? 'Each line is the typical test to that target. Far servers are slower: that is distance, not a fault. Compare each line with its own past.'
-        : 'The typical test to this target.')
-      + (lb ? ' Dotted: most tests were still speeding up when they ended, so the speed was at least this.' : '');
-    this.chartEl.setAttribute('aria-label', this.summary(d));
+        : T ? `Every test to this target, Test now and “Test every server” included; the thin line is the typical scheduled test of each ${per}.`
+          : 'The typical test to this target.')
+      + (lb && !T ? ' Dotted: most tests were still speeding up when they ended, so the speed was at least this.' : '');
+    this.chartEl.setAttribute('aria-label', this.summary(d) + (T ? ` ${T.tests.length} tests, one point each.` : ''));
     this.lanes = several && d.series.some((l) => this.failedAt(l).some(Boolean));
     this.renderLegend(d);
     this.draw(d);
@@ -271,7 +298,17 @@ export class SpeedTime {
       b.addEventListener('focus', on); b.addEventListener('blur', off);
       return b;
     });
-    kids.push(h('span', { class: 'spt-key muted', text: '× tests ran, most didn’t finish' }));
+    const T = this.tests;
+    if (T) {
+      // Each test's mark: a shape for its server, as the row's chart by hour of day has them.
+      const col = css('--s' + this.slot(d.series[0]));
+      const glyph = (/** @type {string} */ g) => { const e = h('span', { 'aria-hidden': 'true', text: g }); e.style.color = col; return e; };
+      for (const [id, shape] of this.shapes(T)) kids.push(h('span', { class: 'spt-key' }, glyph(SHAPE_CHAR[/** @type {'circle'} */ (shape)]), T.servers[id]?.label || id));
+      if (T.tests.some((t) => t.fallback)) kids.push(h('span', { class: 'spt-key muted' }, glyph('○'), 'hollow: a backup server ran it'));
+      if (T.tests.some((t) => t.down_lb || t.up_lb)) kids.push(h('span', { class: 'spt-key muted' }, glyph('↑'), 'at least'));
+      if (T.tests.some((t) => t.on_demand)) kids.push(h('span', { class: 'spt-key muted' }, this.ringSwatch(), 'ringed: you asked for it'));
+    }
+    kids.push(h('span', { class: 'spt-key muted' }, h('span', { 'aria-hidden': 'true', text: '×' }), T ? 'didn’t finish' : 'tests ran, most didn’t finish'));
     this.legendEl.replaceChildren(...kids);
   }
 
@@ -280,7 +317,8 @@ export class SpeedTime {
     const d = this.data;
     if (!d) return;
     for (const u of this.plots) {
-      d.series.forEach((l, k) => { for (const si of [1 + 2 * k, 2 + 2 * k]) u.series[si].alpha = this.focus && this.focus !== l.id ? 0.2 : 1; });
+      // Behind each test's own point the line steps back.
+      d.series.forEach((l, k) => { for (const si of [1 + 2 * k, 2 + 2 * k]) u.series[si].alpha = this.focus && this.focus !== l.id ? 0.2 : this.tests ? 0.5 : 1; });
       u.redraw(false);
     }
   }
@@ -314,9 +352,12 @@ export class SpeedTime {
 
   /** @param {SpeedSeries} d */
   draw(d) {
-    const sig = `${d.series.map((l) => l.id + ':' + this.slot(l)).join()}|${this.lanes}|${css('--surface')}`;
+    const T = this.tests;
+    const sig = `${d.series.map((l) => l.id + ':' + this.slot(l)).join()}|${this.lanes}|${!!T}|${css('--surface')}`;
     this.view = [d.from / 1000, d.to / 1000];
-    this.yTop = { down: niceCeil(this.top.down * 1.03 / 1e6), up: niceCeil(this.top.up * 1.03 / 1e6) };
+    // A zoom may hold faster tests than the range showed as a line.
+    const most = (/** @type {'down_bps'|'up_bps'} */ k, /** @type {number} */ top) => Math.max(top, ...(T ? T.tests.map((t) => t[k] || 0) : []));
+    this.yTop = { down: niceCeil(most('down_bps', this.top.down) * 1.03 / 1e6), up: niceCeil(most('up_bps', this.top.up) * 1.03 / 1e6) };
     if (sig !== this.sig) {
       for (const u of this.plots) u.destroy();
       this.sig = sig;
@@ -338,13 +379,14 @@ export class SpeedTime {
     /** A value with no neighbour on either side still shows, as a point. */
     const lone = (/** @type {any} */ u, /** @type {number} */ si) => {
       const a = u.data[si], b = u.data[si % 2 ? si + 1 : si - 1], out = [];
+      if (self.tests) return out; // each test has its own point
       for (let i = 0; i < a.length; i++) if (a[i] != null && a[i - 1] == null && a[i + 1] == null && (b[i] == null || (b[i - 1] == null && b[i + 1] == null))) out.push(i);
       return out;
     };
     const series = [{}];
     for (const l of d.series) {
       const stroke = css('--s' + this.slot(l));
-      const base = { stroke, width: 2, spanGaps: false, points: { show: true, size: 6, fill: stroke, filter: lone } };
+      const base = { stroke, width: this.tests ? 1 : 2, spanGaps: false, points: { show: true, size: 6, fill: stroke, filter: lone } };
       series.push({ ...base, label: this.name(l), dash: this.dash(l, several) }, { ...base, label: this.name(l) + ' (at least)', dash: AT_LEAST });
     }
     const u = new uPlot({
@@ -366,8 +408,8 @@ export class SpeedTime {
           p.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
           if (width >= 5) self.zoomTo([p.posToVal(left, 'x') * 1000, p.posToVal(left + width, 'x') * 1000]);
         }],
-        setCursor: [(/** @type {any} */ p) => self.onCursor(p)],
-        draw: [(/** @type {any} */ p) => { self.drawMarks(p); if (dir === 'up') self.drawLanes(); }],
+        setCursor: [(/** @type {any} */ p) => (self.tests ? self.onTest(p, dir) : self.onCursor(p))],
+        draw: [(/** @type {any} */ p) => { if (self.tests) self.drawTests(p, dir); else self.drawMarks(p); if (dir === 'up') self.drawLanes(); }],
       },
     }, this.columns(d, dir), el);
     u.over.addEventListener('mouseleave', () => hideTip());
@@ -383,6 +425,85 @@ export class SpeedTime {
     if (!d || d.series.length !== 1) return;
     const xs = u.data[0], dpr = devicePixelRatio || 1, y = u.bbox.top + u.bbox.height - 5 * dpr;
     this.failedAt(d.series[0]).forEach((bad, i) => { if (bad) cross(u.ctx, u.valToPos(xs[i], 'x', true), y, css('--ink-2'), dpr); });
+  }
+
+  /**
+   * Each server's shape: in its region's server order, then as the tests
+   * use them, as the selected row's chart by hour of day gives them out, so
+   * a shape is the same server in both and at every range.
+   * @param {SpeedPoints} T
+   */
+  shapes(T) {
+    const chain = (T.kind === 'region' && this.d?.regions.find((r) => r.id === T.id)?.servers) || [];
+    const ids = [...new Set([...chain, ...T.tests.map((t) => t.server)])];
+    return new Map(ids.map((id, i) => [id, SHAPES[i % SHAPES.length]]).filter(([id]) => T.tests.some((t) => t.server === id)));
+  }
+
+  /** The legend's mark for a test the owner asked for: a point in a ring, as the chart draws it. */
+  ringSwatch() {
+    const dpr = devicePixelRatio || 1, d = this.data;
+    const cv = /** @type {HTMLCanvasElement} */ (h('canvas', { class: 'spt-ring', width: String(Math.round(16 * dpr)), height: String(Math.round(16 * dpr)), 'aria-hidden': 'true' }));
+    const ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext('2d'));
+    ctx.scale(dpr, dpr);
+    mark(ctx, 'circle', 8, 8, css('--s' + (d ? this.slot(d.series[0]) : 1)), false);
+    ctx.strokeStyle = css('--ink-2'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(8, 8, 7, 0, 2 * Math.PI); ctx.stroke();
+    return cv;
+  }
+
+  /**
+   * One target's tests, each as its own point: its server's shape, hollow
+   * on a backup server, an up-tick on a lower bound, a ring on one the
+   * owner asked for, and an × on the baseline when the direction has no
+   * result. Smaller when there are many.
+   * @param {any} u @param {'down'|'up'} dir
+   */
+  drawTests(u, dir) {
+    const T = this.tests, d = this.data;
+    if (!T || !d) return;
+    const ctx = /** @type {CanvasRenderingContext2D} */ (u.ctx), b = u.bbox, dpr = devicePixelRatio || 1;
+    const k = (T.tests.length > 400 ? 0.62 : 1) * dpr, col = css('--s' + this.slot(d.series[0])), shapes = this.shapes(T);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(b.left - 8 * dpr, b.top - 14 * dpr, b.width + 16 * dpr, b.height + 16 * dpr); ctx.clip();
+    for (const t of T.tests) {
+      const x = u.valToPos(t.start / 1000, 'x', true), v = dir === 'down' ? t.down_bps : t.up_bps;
+      if (v == null) { cross(ctx, x, b.top + b.height - 5 * dpr, css('--ink-2'), dpr); continue; }
+      ctx.save();
+      ctx.translate(x, u.valToPos(v / 1e6, 'y', true)); ctx.scale(k, k); ctx.setLineDash([]);
+      mark(ctx, shapes.get(t.server) || 'circle', 0, 0, col, !!t.fallback);
+      if (dir === 'down' ? t.down_lb : t.up_lb) { ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, -12); ctx.moveTo(-2.5, -9.5); ctx.lineTo(0, -12); ctx.lineTo(2.5, -9.5); ctx.stroke(); }
+      if (t.on_demand) { ctx.strokeStyle = css('--ink-2'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 2 * Math.PI); ctx.stroke(); }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /** The test nearest the pointer. @param {any} u @param {'down'|'up'} dir */
+  onTest(u, dir) {
+    const T = this.tests;
+    if (!T || u.cursor.left < 0 || !u.over.matches(':hover')) return;
+    let best = null, bd = 30;
+    for (const t of T.tests) {
+      const v = dir === 'down' ? t.down_bps : t.up_bps;
+      const dd = Math.hypot(u.valToPos(t.start / 1000, 'x') - u.cursor.left, (v == null ? u.over.clientHeight - 5 : u.valToPos(v / 1e6, 'y')) - u.cursor.top);
+      if (dd < bd) { bd = dd; best = t; }
+    }
+    if (!best) { hideTip(); return; }
+    const t = best, sv = T.servers[t.server];
+    const flags = [t.fallback ? 'a backup server' : '', t.on_demand ? 'you asked for it' : '', t.capped_by_server ? 'as fast as the server goes' : ''].filter(Boolean);
+    const r = u.over.getBoundingClientRect();
+    showTip([
+      h('div', { class: 't', text: when(t.start) }),
+      h('div', { text: `${sv ? sv.label : t.server}${flags.length ? ` (${flags.join(', ')})` : ''}` }),
+      h('div', { text: t.down_bps == null ? OUTCOME[t.outcome] || 'didn’t finish'
+        : `${t.down_lb ? 'at least ' : ''}${fmtMbps(t.down_bps)} down · ${t.up_bps == null ? 'the upload didn’t finish' : `${t.up_lb ? 'at least ' : ''}${fmtMbps(t.up_bps)} up`}` }),
+    ], r.left + u.cursor.left, r.top + u.cursor.top);
+  }
+
+  /** Shows one region or server alone (the Speed page's selected row). @param {string} id */
+  show(id) {
+    this.setTargets([id]);
+    this.el.scrollIntoView({ behavior: smooth(), block: 'start' });
+    this.pickBtn.focus({ preventScroll: true });
   }
 
   /** With several lines, each one's failures in its own named lane under the plots. */
