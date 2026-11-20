@@ -1,7 +1,8 @@
 name: release
-# On a v* tag: test, cross-build the release binaries through the Dockerfile,
-# fill the version into the launchers, publish a GitHub release with
-# SHA256SUMS and build provenance attestations, and push the multi-arch image
+# On a v* tag (created by release-please.yaml with a draft GitHub release):
+# test, cross-build the release binaries through the Dockerfile, fill the
+# version into the launchers, add them to the release with SHA256SUMS and
+# build provenance attestations, publish it, and push the multi-arch image
 # ghcr.io/glueops/fyisp:<tag> (and :latest for non-prerelease tags).
 on:
   push:
@@ -19,7 +20,7 @@ jobs:
   binaries:
     runs-on: ubuntu-latest
     permissions:
-      contents: write     # create the release
+      contents: write     # upload to and publish the release
       id-token: write     # sign attestations
       attestations: write
     steps:
@@ -75,14 +76,12 @@ jobs:
             dist/fyisp-*
             dist/run.sh
             dist/run.ps1
-      - name: create GitHub release
+      - name: publish the release with the binaries and install notes
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
         run: |
           set -eu
-          pre=()
-          case "$VERSION" in *-*) pre=(--prerelease);; esac
           cat > notes.md <<EOF
           Run without installing (verifies SHA256SUMS before running):
 
@@ -96,8 +95,17 @@ jobs:
 
           Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
           (plus \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`).
+
           EOF
-          gh release create "$VERSION" dist/* --verify-tag --title "fyisp $VERSION" --notes-file notes.md --generate-notes "${pre[@]}"
+          # release-please wrote the changelog as the draft's body: keep it below
+          # the install notes. On a re-run the body already has them.
+          body=$(gh release view "$VERSION" --json body --jq .body)
+          case "$body" in
+            'Run without installing'*) printf '%s\n' "$body" > notes.md;;
+            *) printf '%s\n' "$body" >> notes.md;;
+          esac
+          gh release upload "$VERSION" dist/* --clobber
+          gh release edit "$VERSION" --draft=false --title "fyisp $VERSION" --notes-file notes.md
 
   image:
     needs: binaries # reuse the IP-to-ASN table the binaries job tested
