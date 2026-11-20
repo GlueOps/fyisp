@@ -198,6 +198,10 @@ type conn struct {
 	readTimeout  time.Duration
 	writeTimeout time.Duration
 	hard         atomic.Int64
+	// pastHard: a read or write was cut by the hard deadline. The timer
+	// can fire a little before a clock comparison with the bound says so
+	// (it is armed from the wall clock), so this is what tells.
+	pastHard atomic.Bool
 	// firstRead and readN: the first read with bytes, and the bytes read,
 	// since armFirst (the first response byte; an idle close).
 	firstRead time.Time
@@ -208,16 +212,22 @@ type conn struct {
 	now       func() time.Time
 }
 
-// deadline is now+d (d 0: none), never past hard.
-func (c *conn) deadline(d time.Duration) time.Time {
-	var t time.Time
+// deadline is now+d (d 0: none), never past hard; atHard says it is hard.
+func (c *conn) deadline(d time.Duration) (t time.Time, atHard bool) {
 	if d > 0 {
 		t = time.Now().Add(d)
 	}
 	if h := c.hard.Load(); h != 0 && (t.IsZero() || time.Unix(0, h).Before(t)) {
-		t = time.Unix(0, h)
+		return time.Unix(0, h), true
 	}
-	return t
+	return t, false
+}
+
+// cut notes an operation that the hard deadline ended.
+func (c *conn) cut(atHard bool, err error) {
+	if atHard && isTimeout(err) {
+		c.pastHard.Store(true)
+	}
 }
 
 // stopAt makes every read and write fail from t on (a cancel).
@@ -235,8 +245,10 @@ func (c *conn) Read(p []byte) (int, error) {
 	if c.headLeft > 0 && int64(len(p)) > c.headLeft {
 		p = p[:c.headLeft]
 	}
-	_ = c.nc.SetReadDeadline(c.deadline(c.readTimeout))
+	dl, atHard := c.deadline(c.readTimeout)
+	_ = c.nc.SetReadDeadline(dl)
 	n, err := c.nc.Read(p)
+	c.cut(atHard, err)
 	if c.headLeft > 0 {
 		if c.headLeft -= int64(n); c.headLeft == 0 {
 			c.headLeft = -1
@@ -253,8 +265,10 @@ func (c *conn) Read(p []byte) (int, error) {
 }
 
 func (c *conn) Write(p []byte) (int, error) {
-	_ = c.nc.SetWriteDeadline(c.deadline(c.writeTimeout))
+	dl, atHard := c.deadline(c.writeTimeout)
+	_ = c.nc.SetWriteDeadline(dl)
 	n, err := c.nc.Write(p)
+	c.cut(atHard, err)
 	c.wire.Add(int64(n))
 	return n, err
 }
