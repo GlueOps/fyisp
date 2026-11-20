@@ -97,6 +97,7 @@ var ErrMode = errors.New("unknown speed test mode")
 type Store interface {
 	SaveSpeedTest(ctx context.Context, t *model.SpeedTest) error
 	SpeedTests(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
+	SpeedSeries(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
 	SpeedWindows(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error)
 	RetireSpeedTestServers(ctx context.Context, servers []string) (int64, error)
 	Setting(ctx context.Context, key string) (string, bool, error)
@@ -918,6 +919,15 @@ func (s *Scheduler) SpeedTests(ctx context.Context, from, to time.Time) ([]model
 		return nil, nil
 	}
 	return s.o.Store.SpeedTests(ctx, from, to)
+}
+
+// SpeedSeries reads stored tests with only what a chart over time needs
+// (store.SQLite.SpeedSeries; oldest first).
+func (s *Scheduler) SpeedSeries(ctx context.Context, from, to time.Time) ([]model.SpeedTest, error) {
+	if s.o.Store == nil {
+		return nil, nil
+	}
+	return s.o.Store.SpeedSeries(ctx, from, to)
 }
 
 // SpeedWindows reads every stored test's window, retired ones included

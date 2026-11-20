@@ -168,15 +168,21 @@ func parsePanelParams(q url.Values, now time.Time) (panelParams, error) {
 	if p.to.Sub(p.from) > MaxRange {
 		p.from = p.to.Add(-MaxRange)
 	}
-	p.points = DefaultPoints
-	if s := q.Get("points"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return p, badReq("bad points %q", s)
-		}
-		p.points = min(max(n, minPoints), MaxPoints)
+	p.points, err = parsePoints(q)
+	return p, err
+}
+
+// parsePoints reads points= (the most points wanted), clamped.
+func parsePoints(q url.Values) (int, error) {
+	s := q.Get("points")
+	if s == "" {
+		return DefaultPoints, nil
 	}
-	return p, nil
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, badReq("bad points %q", s)
+	}
+	return min(max(n, minPoints), MaxPoints), nil
 }
 
 // panelSeries is one series of a resolved group.

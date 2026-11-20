@@ -30,6 +30,11 @@ func (m *MemStore) SpeedTests(_ context.Context, from, to time.Time) ([]model.Sp
 	return m.speedTests(from, to, false), nil
 }
 
+// SpeedSeries implements Store (every field filled: more than asked).
+func (m *MemStore) SpeedSeries(_ context.Context, from, to time.Time) ([]model.SpeedTest, error) {
+	return m.speedTests(from, to, false), nil
+}
+
 // SpeedWindows implements Store.
 func (m *MemStore) SpeedWindows(_ context.Context, from, to time.Time) ([]model.SpeedTest, error) {
 	return m.speedTests(from, to, true), nil

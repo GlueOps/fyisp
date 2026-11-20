@@ -14,7 +14,7 @@ Intervals can be changed with `--speedtest=…,every=`. The floor is 15 minutes 
 
 The catalog (`internal/profile/catalog/iperf3/`: 47 servers in per-provider files, plus `regions.yml`) is built into the binary. It changes only with a release.
 
-The Go types live in `internal/web/speed.go`; keep this file in sync with them. Golden example: `internal/web/testdata/speed/local.json`.
+The Go types live in `internal/web/speed.go` and `speed_series.go`; keep this file in sync with them. Golden examples: `internal/web/testdata/speed/` (`local.json` the summary, `series.json` and `lines.json` `part=series` without and with `targets`, `tests.json` `part=tests`).
 
 Routes are relative like every other API. Unknown parameters return 400. When fyisp runs without a speed-test source (only `fyisp-webdev -no-speed` and tests), every route answers 404 and `/api/profile` has `features.speed: false`. Hide Speed then.
 
@@ -335,6 +335,59 @@ For compare, make one request per row (up to 4).
 ```
 
 `from` and `to` take the same forms as `/api/panel`: `now`, `now-6h`, `now-7d` or unix ms, up to 90 days apart. The defaults are `now-30m` and `now`. Shade these on every time chart. Probe samples inside a window are stored as measured, so a test that loads the line shows up as a spike or loss. Home blames a problem that overlaps a window (or the 2 s after it) on the test (`cause_kind` `speedtest`). The windows include tests of servers since removed from the catalog, whose results are gone from every other part of this API, and storage-test rounds' transfers (`origin` `storage`).
+
+## `GET api/speed?part=series&from=...&to=...` (speed over time)
+
+The tests of a range as points on a time axis, in bits per second. `from` and `to` are as for `part=windows` (defaults `now-7d` and `now`, at most 90 days apart); `tz` is the zone the points' hours are in (an IANA name or minutes east of UTC, as the summary takes it); `points` is how many points to aim for at most (10 to 2000, default 1000; a value outside is clamped): it picks the step, which is never longer than a day.
+
+- Without `targets`, one line of kind `pooled`: every scheduled test together.
+- With `targets=<id>,<id>,…` (1 to 8 different region or server ids, 400 otherwise; an unknown id returns 404), one line per id, in that order.
+
+```jsonc
+{
+  "at": 1760104800000, "from": 1759500000000, "to": 1760104800000,
+  "step": 7200000,                    // ms: the points' length (see t)
+  "t": [1759492800000, ...],          // each point's start; point i runs to t[i+1], the last one to end
+  "end": 1760112000000,
+  "down_max": 941200000, "up_max": 41000000,   // the fastest single test of the lines; null without any
+  "series": [{
+    "id": "", "kind": "pooled", "label": "",   // kind: "pooled" | "region" | "server"; id and label as in Row
+    "usual": 30,                      // the median number of tests with a download in the points that have any
+    "down_bps": [912000000, null, ...], "up_bps": [...],
+    "n": [30, 4, ...], "up_n": [...], // tests with a download, with an upload
+    "failed": [0, 26, ...],           // busy, unreachable, or failed before a download
+    "down_lb": [2, 0, ...], "up_lb": [...]     // of n and up_n: lower bounds ("at least")
+  }]
+}
+```
+
+**Which tests.** Scheduled tests only (Test now and sweeps are left out, as from the patterns), cancelled ones never. Unlike the patterns, the lines keep tests on a backup server, lower bounds (at their measured value) and results capped by the server: the chart shows what was measured. A test whose upload failed keeps its download, so `up_n` can be below `n`.
+
+**Values.** A region's or server's value is the median of its point. The pooled value is the 90th percentile: the faster tests of the point, mostly the nearest servers, which follow the line's own speed (a median would sit on a far server and miss a slowdown above its speed). A pooled point with under half of `usual` has no value (`null`): it holds a different mix of servers. Its counts are still returned. `failed` at or above `n` means the tests ran and mostly did not finish; nothing in `n` and `failed` means no test ran.
+
+**Points.** `step` is the smallest of 1, 2, 3, 6, 12 and 24 hours that needs no more than `points` points (24 hours when every step needs more), then made longer until every line's `usual` is at least 4 (24 hours at most): a region tested hourly gets 6-hour points, a server tested every few hours 12-hour ones. The pooled line is never finer than 2 hours: in mode `regions` most regions alternate two providers hourly, so one hour holds half of the servers. A range over 60 days uses days. Points start on wall-clock hours of each day in `tz`, so on the day of a DST change one point is an hour longer or shorter, and where the change skips a point's starting hour (midnight in a few zones) the point before it runs on to the next start. The first point starts at or before `from` and the last ends after `to`. Read each point's span from `t`, not from `step`.
+
+## `GET api/speed?part=tests&row=<id>&from=...&to=...` (one row's tests)
+
+One region's or server's tests in a range, for drawing each one (`server=` and `region=` work as `row=`; an unknown id returns 404). `from` and `to` are as for `part=series`.
+
+```jsonc
+{
+  "at": ..., "from": ..., "to": ...,
+  "id": "uk", "kind": "region", "label": "UK",
+  "servers": {"Clouvider-London": {"label": "Clouvider London", "provider": "Clouvider"}},   // every server in tests
+  "tests": [{
+    "id": 412, "start": 1760101200000, "outcome": "ok", "server": "Clouvider-London",
+    "down_bps": 912000000, "up_bps": 40100000,   // null when not measured
+    "down_lb": true,                  // these five only when true: a lower bound per direction,
+    "up_lb": true,                    // a backup server, a test the owner asked for,
+    "fallback": true, "on_demand": true, "capped_by_server": true   // a result capped by the server
+  }],
+  "capped": false, "complete_from": 1759500000000
+}
+```
+
+Oldest first, every trigger (`on_demand` marks Test now and sweeps, which `part=series` leaves out), without cancelled tests. At most the newest 5000: `capped` then is true and `complete_from` is the first one's start (otherwise `from`). A smaller shape than `row=`'s Test: no port, handoff or latency.
 
 ## The queue
 
