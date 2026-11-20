@@ -459,7 +459,8 @@ func TestStorageReport(t *testing.T) {
 	}
 	camp := int64(out["campaign"].(map[string]any)["id"].(float64))
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		if len(l.get(t, "/api/storage")["live"].([]any)) == 0 {
+		// "live" is also empty before the round starts.
+		if sum := l.get(t, "/api/storage"); len(sum["live"].([]any)) == 0 && len(sum["history"].([]any)) == 1 {
 			break
 		}
 		if time.Now().After(deadline) {

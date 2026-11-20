@@ -244,9 +244,21 @@ func TestClosedPortRefused(t *testing.T) {
 	r := New(Options{Log: quietLog(), Timeout: 3 * time.Second})
 	tg := model.Target{Name: "closed", Host: "127.0.0.1", Port: port, Kinds: []model.ProbeKind{model.KindTCP, model.KindHTTPS}, Interval: 500 * time.Millisecond}
 	keys := []model.SeriesKey{{Target: "closed", Kind: model.KindTCP}, {Target: "closed", Kind: model.KindHTTPS}}
-	ss := collect(t, r, profileOf(tg), 10*time.Second, countAll(keys...))
+	// Until each kind was refused once. On a loaded macOS runner a probe of
+	// a closed port sometimes times out instead, so that is tolerated.
+	refused := func(ss []model.Sample) bool {
+		got := map[model.SeriesKey]bool{}
+		for _, s := range ss {
+			got[s.Key] = got[s.Key] || s.Reason == model.ReasonRefused
+		}
+		return got[keys[0]] && got[keys[1]]
+	}
+	ss := collect(t, r, profileOf(tg), 30*time.Second, refused)
+	if !refused(ss) {
+		t.Error("not refused on both kinds")
+	}
 	for _, k := range keys {
-		lostWith(t, ss, k, model.ReasonRefused)
+		lostWith(t, ss, k, model.ReasonRefused, model.ReasonTimeout)
 	}
 }
 

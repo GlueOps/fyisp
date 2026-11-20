@@ -23,7 +23,9 @@ func TestQueuedDeafServer(t *testing.T) {
 	s := New(Options{Catalog: &Catalog{Servers: []Server{sv}, byID: map[string]int{"Local": 0}}, Store: st, Log: slog.New(slog.DiscardHandler),
 		Fake: &Fake{
 			Run: func(ctx context.Context, c Config) (Result, error) {
-				c.Duration, c.MinDuration, c.Omit, c.Backstop = time.Second, 0, 300*time.Millisecond, 2*time.Second // short, for the test
+				// Short, for the test. The backstop is well after the window's end
+				// (1.3 s): a stalled runner must not let it cut an unfinished window.
+				c.Duration, c.MinDuration, c.Omit, c.Backstop = time.Second, 0, 300*time.Millisecond, 4*time.Second
 				return Run(ctx, c)
 			},
 			Sleep: func(ctx context.Context, _ time.Duration) bool { return ctx.Err() == nil },

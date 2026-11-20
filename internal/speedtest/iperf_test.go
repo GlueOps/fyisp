@@ -764,7 +764,7 @@ func TestBytesHonest(t *testing.T) {
 		f := newFakeServer(t, "stall")
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			for f.out.Load() < 4<<20 {
+			for f.out.Load() < 16<<20 {
 				time.Sleep(5 * time.Millisecond)
 			}
 			cancel()
@@ -776,7 +776,9 @@ func TestBytesHonest(t *testing.T) {
 			t.Fatal("not cancelled")
 		}
 		settle(f)
-		if out := f.out.Load(); r.WireBytes < out-slack || r.WireBytes > out+4096 {
+		// A cancel leaves what the three streams' socket buffers held unread
+		// (more than 1 MiB on a loaded macOS runner), so the slack is wider.
+		if out := f.out.Load(); r.WireBytes < out-4*slack || r.WireBytes > out+4096 {
 			t.Errorf("wire %d, the server sent %d", r.WireBytes, out)
 		}
 	})
