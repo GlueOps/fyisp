@@ -213,6 +213,7 @@ func main() {
 	noTrace := flag.Bool("no-trace", false, "run without a trace source (Investigate view hidden)")
 	noBaselines := flag.Bool("no-baselines", false, "run without baselines (no \"normal\" badges, band or slow line)")
 	noSpeed := flag.Bool("no-speed", false, "run without speed tests (Speed hidden)")
+	speedHist := flag.Duration("speed-history", 0, "speed-test history to generate, e.g. 168h (2 to 90 days; default: the backfill)")
 	storageScen := flag.String("storage", storageTargets, "storage tests: none (Storage hidden), empty (no targets) or targets")
 	callsMode := flag.String("calls", callsGood, "call-path scenario for the Calls view: good, poor or blocked")
 	named := flag.String("profile", "", "named profiles instead of the dev profile, e.g. all (keep -backfill short: every series is in memory)")
@@ -357,7 +358,10 @@ func main() {
 		d.Path = func() netinfo.Path { return live.Current().Path }
 	}
 	if !*noSpeed {
-		d.Speed = newFakeSpeed(ctx, now, *bf, log)
+		if *speedHist == 0 {
+			*speedHist = *bf
+		}
+		d.Speed = newFakeSpeed(ctx, now, *speedHist, log)
 	}
 	switch *storageScen {
 	case storageNone, storageEmpty, storageTargets:

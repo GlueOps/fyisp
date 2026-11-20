@@ -1360,3 +1360,19 @@ body.home-on #viewnav { display: none !important; }
 .panel.combo .panel-head { flex-wrap: wrap; }
 .panel.combo:not(.one-shown) .strip-wrap, .panel.combo:not(.one-shown) .strip-legend { display: none; }
 .scale-note { margin: 0 0 6px; }
+
+/* Speed over time (speedtime.js): two plots on one time axis, and a lane of failures per line when several show and any has some. */
+.spt .sp-ctl { margin: 0; }
+.spt-zoom { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.spt-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 2px; font-size: 12px; color: var(--ink-2); }
+.spt-key { display: inline-flex; align-items: center; gap: 6px; font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; }
+button.spt-key { cursor: pointer; }
+button.spt-key:hover, button.spt-key:focus-visible { border-color: var(--border); color: var(--ink); }
+.spt-sw { width: 30px; height: 8px; flex: none; }
+.spt-tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.spt-chart { min-width: 0; }
+.spt-axis { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.spt-lanes { display: block; width: 100%; }
+.spt-corner { margin: 4px 0 0; text-align: right; }
+.spt-cap { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); max-width: 82ch; }
+.sp-pick-row.spt-sub { padding-left: 22px; }
