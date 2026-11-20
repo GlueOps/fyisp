@@ -135,7 +135,7 @@ jobs:
             --build-arg "VERSION=$VERSION" \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.version=$VERSION" \
-            --label "org.opencontainers.image.licenses=MIT" \
+            --label "org.opencontainers.image.licenses=Apache-2.0" \
             "${tags[@]}" --push --metadata-file meta.json .
           echo "digest=$(jq -r '."containerimage.digest"' meta.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
