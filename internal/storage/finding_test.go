@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestExplain: what a campaign points to, from its rounds and attempts.

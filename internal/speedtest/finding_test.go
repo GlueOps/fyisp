@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // findingCatalog: providers A, B and C in two metros, A and B in a far one.

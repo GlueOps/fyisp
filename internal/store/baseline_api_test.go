@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store/blob"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store/blob"
 )
 
 // TestSummaryDecode: a day row in the format version 2 round-trips; a row

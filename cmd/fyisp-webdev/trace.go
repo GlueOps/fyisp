@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/web"
 )
 
 // fakeTrace implements web.TraceSource over store.Fake. Every target gets a

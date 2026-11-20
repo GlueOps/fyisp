@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/s3test"
 )
 
 // CheckTimeout bounds one check.

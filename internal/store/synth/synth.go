@@ -7,7 +7,7 @@ import (
 	"math"
 	"math/rand/v2"
 
-	"github.com/fuck-you-isp/fyisp/internal/store/blob"
+	"github.com/glueops/fyisp/internal/store/blob"
 )
 
 // Series produces one series' slots.

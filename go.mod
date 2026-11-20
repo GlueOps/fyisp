@@ -1,4 +1,4 @@
-module github.com/fuck-you-isp/fyisp
+module github.com/glueops/fyisp
 
 go 1.27.3
 

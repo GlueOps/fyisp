@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // replay walks the stored samples of [t0 − Replay, t0) through the same

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Baselines (BaselineReader) are computed from the hourly summaries

@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
 )
 
 // Edge discovery parameters: hops 1..maxHops, each tried up to 1+hopRetries

@@ -1,6 +1,6 @@
 fyisp
-Copyright (c) 2026 fuck-you-isp
-Licensed under the MIT License (see LICENSE).
+Copyright 2026 GlueOps, LLC
+Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 fyisp is not affiliated with or endorsed by Cloudflare, Inc. or any of the
 services it measures. The optional HTTPS link (--tunnel) uses Cloudflare's free

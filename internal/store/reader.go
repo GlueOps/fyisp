@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store/blob"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store/blob"
 )
 
 // memBlock is a reader's view of an hour still held in memory: the current

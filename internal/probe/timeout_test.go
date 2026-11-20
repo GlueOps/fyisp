@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestDefaultTimeouts: TCP and ICMP wait 3s by default (a 1s timeout records

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/metrics"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/metrics"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // speedFlag is --speedtest[=MODE][,every=DUR][,add=REGION...][,far=REGION...]:

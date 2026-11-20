@@ -25,15 +25,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/tiles"
-	"github.com/fuck-you-isp/fyisp/internal/web"
-	"github.com/fuck-you-isp/fyisp/internal/web/homescen"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/web"
+	"github.com/glueops/fyisp/internal/web/homescen"
 )
 
 // udpBase are base RTTs (ms) of the STUN targets' fake bursts (see

@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store/blob"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store/blob"
 )
 
 const hourMs = int64(time.Hour / time.Millisecond)

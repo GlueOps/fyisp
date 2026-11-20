@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/callq"
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/callq"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Latency under load. Bufferbloat lives in the queue of the link's

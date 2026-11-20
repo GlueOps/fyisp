@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // fixtureSamples are 3 series: two closed hours and part of a third.

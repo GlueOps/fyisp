@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/s3test"
 )
 
 // Finding is what a campaign's rounds point to, in words: a kicker

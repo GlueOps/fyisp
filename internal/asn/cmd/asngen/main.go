@@ -17,7 +17,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/asn"
+	"github.com/glueops/fyisp/internal/asn"
 )
 
 func main() {

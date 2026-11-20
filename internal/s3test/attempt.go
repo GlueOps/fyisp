@@ -11,10 +11,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/tcpinfo"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/tcpinfo"
 )
 
 // Options configure an Engine.

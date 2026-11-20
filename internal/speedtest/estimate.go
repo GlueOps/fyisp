@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // A direction is measured from where its rate levels off.

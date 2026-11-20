@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 var allKinds = []model.ProbeKind{model.KindHTTPS, model.KindTCP, model.KindICMP}

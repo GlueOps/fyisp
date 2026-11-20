@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // sampleRegistry is the embedded profiles.yml over the test catalog.

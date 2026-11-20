@@ -17,7 +17,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 // The speed-test catalog (internal/profile/catalog/iperf3): one file per

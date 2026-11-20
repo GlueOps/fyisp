@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/metrics"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/metrics"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 func TestSpeedFlags(t *testing.T) {

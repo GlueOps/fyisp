@@ -2,7 +2,7 @@ name: release
 # On a v* tag: test, cross-build the release binaries through the Dockerfile,
 # fill the version into the launchers, publish a GitHub release with
 # SHA256SUMS and build provenance attestations, and push the multi-arch image
-# ghcr.io/fuck-you-isp/fyisp:<tag> (and :latest for non-prerelease tags).
+# ghcr.io/glueops/fyisp:<tag> (and :latest for non-prerelease tags).
 on:
   push:
     tags: ['v*']
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/fuck-you-isp/fyisp
+  IMAGE: ghcr.io/glueops/fyisp
 
 jobs:
   binaries:
@@ -135,7 +135,7 @@ jobs:
             --build-arg "VERSION=$VERSION" \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.version=$VERSION" \
-            --label "org.opencontainers.image.licenses=MIT" \
+            --label "org.opencontainers.image.licenses=Apache-2.0" \
             "${tags[@]}" --push --metadata-file meta.json .
           echo "digest=$(jq -r '."containerimage.digest"' meta.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

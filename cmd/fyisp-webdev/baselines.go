@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/verdict"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/verdict"
 )
 
 // slowdown is the synthetic "evening slowdown": these targets run slower

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fuck-you-isp/fyisp/internal/callq"
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/callq"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TagTile puts a target in one of the fixed Home tiles: "tile:<id>" with

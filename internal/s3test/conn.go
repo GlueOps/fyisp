@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/netinfo"
 )
 
 // Per-step bounds (an attempt's class says which one was hit).

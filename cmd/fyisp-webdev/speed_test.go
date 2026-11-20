@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // TestFakeSpeedFinding: the fake's every-region evening dip reads as still

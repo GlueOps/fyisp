@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Self-interference: a speed test fills the link, so every probe that runs

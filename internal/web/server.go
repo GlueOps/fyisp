@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/netinfo"
 )
 
 //go:embed static

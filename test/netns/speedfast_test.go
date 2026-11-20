@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // fastRate is the lab line's rate: a veth shaped with htb holds 2 Gbit/s

@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Classify maps a probe error to a loss reason. Socket errnos are checked

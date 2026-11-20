@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/s3test/s3fake"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/s3test/s3fake"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // lab is a fake server and an engine that reaches it at 127.0.0.1 under any

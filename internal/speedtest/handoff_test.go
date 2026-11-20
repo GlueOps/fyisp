@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/asn"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/asn"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
 )
 
 // fakeHops answers TTL k with path[k-1]; the last one is the destination.

@@ -5,7 +5,7 @@ package netinfo
 import (
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestConnTypeVirtual: a container's veth, bridges and tunnels are never

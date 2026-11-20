@@ -17,7 +17,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 // ---- synthetic data ----

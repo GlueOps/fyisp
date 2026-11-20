@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // probesHandler serves a Fake with Alpha's tcp and https probed every 15 s for

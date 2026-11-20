@@ -25,7 +25,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Band is a MOS band (the G.107 user-satisfaction bands).

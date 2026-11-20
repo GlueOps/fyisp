@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // TraceSource is what the Investigate view reads: per-hop statistics from

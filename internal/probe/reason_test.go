@@ -12,7 +12,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 func TestClassify(t *testing.T) {

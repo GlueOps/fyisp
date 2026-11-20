@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through GitHub's
-[private vulnerability reporting](https://github.com/fuck-you-isp/fyisp/security/advisories/new)
+[private vulnerability reporting](https://github.com/glueops/fyisp/security/advisories/new)
 ("Report a vulnerability" on the Security tab). Please do not open a public
 issue for security problems.
 

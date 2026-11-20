@@ -83,7 +83,7 @@ COPY --from=asndb-gen /out/ip2asn-v4.bin /internal/asn/data/
 #   docker buildx build --target dbfixture --output type=local,dest=. .
 FROM base AS dbfixture-gen
 ARG RELEASE=v0.14.0
-RUN git clone --depth 1 --branch ${RELEASE} https://github.com/fuck-you-isp/fyisp /rel
+RUN git clone --depth 1 --branch ${RELEASE} https://github.com/glueops/fyisp /rel
 COPY internal/store/testdata/genfixture/main.go /rel/cmd/genfixture/
 WORKDIR /rel
 RUN --mount=type=cache,target=/go/pkg/mod \

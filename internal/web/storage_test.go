@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/s3test/s3fake"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/s3test/s3fake"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // storageLab is a Local with storage over a fake S3 server reached as

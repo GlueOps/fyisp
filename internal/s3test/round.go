@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Phases are a round's sizes: cold and warm checks per target, and the

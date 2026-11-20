@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // UDP targets are measured with STUN Binding Requests (RFC 5389), the first

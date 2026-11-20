@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // TestHome10 runs the new Home (docs/HOME-API.md, v2: the answer card, the

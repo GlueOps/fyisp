@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // BaselineSource answers each series' normal. baseline.Source implements

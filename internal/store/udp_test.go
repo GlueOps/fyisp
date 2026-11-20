@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // udpBursts returns synthetic bursts of target every iv in [from, to): the

@@ -7,15 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/asn"
-	"github.com/fuck-you-isp/fyisp/internal/metrics"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo/hops"
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
-	"github.com/fuck-you-isp/fyisp/internal/trace"
+	"github.com/glueops/fyisp/internal/asn"
+	"github.com/glueops/fyisp/internal/metrics"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/trace"
 )
 
 // newStorage opens the storage-test targets in dir and the campaigns that

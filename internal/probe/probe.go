@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
 )
 
 // Caps reports how ICMP works on this machine (TCP and HTTPS always do).

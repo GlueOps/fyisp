@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 func TestLimits(t *testing.T) {

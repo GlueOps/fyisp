@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/tcpinfo"
+	"github.com/glueops/fyisp/internal/tcpinfo"
 )
 
 // tcpInfo is a TCP connection's retransmitted segments and bytes acked by

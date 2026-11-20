@@ -15,9 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/s3test"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/s3test"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 // Campaigns: rounds every Interval against a campaign's targets, on demand

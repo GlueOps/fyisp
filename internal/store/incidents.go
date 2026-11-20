@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // The incidents table is the outage log written by the

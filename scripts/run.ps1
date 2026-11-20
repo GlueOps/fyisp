@@ -7,7 +7,7 @@
 # directory).
 #
 #   powershell -ExecutionPolicy Bypass -File run.ps1 [fyisp args]
-#   & ([scriptblock]::Create((irm https://github.com/fuck-you-isp/fyisp/releases/download/<version>/run.ps1))) --speedtest
+#   & ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/download/<version>/run.ps1))) --speedtest
 #
 # Environment:
 #   FYISP_BASE_URL  download from here instead of the GitHub release (must be
@@ -25,7 +25,7 @@ function Main {
 
     # Filled in by the release workflow; do not edit by hand.
     $FyispVersion = '@FYISP_VERSION@'
-    $repo = 'fuck-you-isp/fyisp'
+    $repo = 'glueops/fyisp'
 
     function Say([string]$msg) { [Console]::Error.WriteLine("fyisp-run: $msg") }
 

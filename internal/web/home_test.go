@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
-	"github.com/fuck-you-isp/fyisp/internal/tiles"
-	"github.com/fuck-you-isp/fyisp/internal/web/homescen"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/web/homescen"
 )
 
 func scenario(t *testing.T, name string) *homescen.Scenario {

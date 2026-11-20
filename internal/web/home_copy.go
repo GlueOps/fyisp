@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/profile"
-	"github.com/fuck-you-isp/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/tiles"
 )
 
 // homeCopy writes the Home's words (docs/HOME-API.md) in en-US, with

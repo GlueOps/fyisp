@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // TestSpikesKeepRNG: -spikes changes only spikeTable's slots of one TCP

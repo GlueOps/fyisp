@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/callq"
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/callq"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // Calls view limits. A window is scored in one-minute buckets from the raw

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Connection states (ConnState.Kind) besides the verdict kinds.

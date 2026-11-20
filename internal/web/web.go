@@ -30,13 +30,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/netinfo"
-	"github.com/fuck-you-isp/fyisp/internal/probe"
-	"github.com/fuck-you-isp/fyisp/internal/storage"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/tiles"
-	"github.com/fuck-you-isp/fyisp/internal/verdict"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/probe"
+	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/verdict"
 )
 
 // Deps is everything the handlers need. Profile, Store and Status are

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/profile"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/profile"
 )
 
 // The shapes the netns lab (test/netns, TestHome10) found: the verdict's

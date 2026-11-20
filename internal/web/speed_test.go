@@ -15,8 +15,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/speedtest"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/speedtest"
 )
 
 var speedNow = time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)

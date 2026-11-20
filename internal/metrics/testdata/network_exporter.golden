@@ -1,4 +1,4 @@
-# Captured 2026-09-26 from ghcr.io/fuck-you-isp/network-exporter:main (icmp count: 1).
+# Captured 2026-09-26 from the legacy network-exporter image (icmp count: 1).
 # Only the ping_* families; one successful and one lost target. Values are informative only;
 # the golden test compares metric names, HELP, TYPE and label names.
 # HELP ping_loss_percent Packet loss in percent

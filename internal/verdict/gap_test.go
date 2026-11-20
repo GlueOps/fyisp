@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // masked returns every probe in [t0+from, t0+to) as "not measured", as the

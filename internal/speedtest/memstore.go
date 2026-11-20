@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // MemStore is an in-memory Store (tests and cmd/fyisp-webdev).

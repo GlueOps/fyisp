@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/fuck-you-isp/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/storage"
 )
 
 // defaultDataDir is where history lives unless --data-dir or --ephemeral.

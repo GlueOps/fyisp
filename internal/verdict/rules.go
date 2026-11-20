@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/model"
 )
 
 // Rules, evaluated every 5s over the last 60s of samples (not-measured gaps

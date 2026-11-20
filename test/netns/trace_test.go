@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/trace"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/trace"
 )
 
 // TestTrace adds an alternative router to its topology (namespace

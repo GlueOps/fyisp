@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/s3test/s3fake"
+	"github.com/glueops/fyisp/internal/s3test/s3fake"
 )
 
 // storageBucket is the fake S3's bucket (responder_test.go).

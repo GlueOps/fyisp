@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fuck-you-isp/fyisp/internal/model"
-	"github.com/fuck-you-isp/fyisp/internal/store"
-	"github.com/fuck-you-isp/fyisp/internal/verdict"
+	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/store"
+	"github.com/glueops/fyisp/internal/verdict"
 )
 
 // Overview thresholds. Failing and very slow are the verdict engine's
