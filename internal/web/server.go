@@ -308,6 +308,9 @@ func (s *server) servePanel(w http.ResponseWriter, r *http.Request, asCSV bool) 
 	case errors.Is(err, errUnknownGroup):
 		writeErr(w, r, http.StatusNotFound, "unknown group")
 		return
+	case errors.Is(err, errUnknownTarget):
+		writeErr(w, r, http.StatusNotFound, "unknown target")
+		return
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		switch {
 		case r.Context().Err() != nil:

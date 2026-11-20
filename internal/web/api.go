@@ -35,6 +35,13 @@ func badReq(format string, a ...any) error { return fmt.Errorf(format, a...) }
 
 var errUnknownGroup = errors.New("unknown group")
 
+// maxPanelTargets is the most targets one api/panel?targets= answer holds
+// (the combined chart draws 8).
+const maxPanelTargets = 16
+
+// targetsGroup stands in for the group of a targets= panel.
+var targetsGroup = model.Group{ID: "targets", Title: "Selected targets"}
+
 // checkParams enforces the parameter whitelist: no unknown or repeated keys.
 func checkParams(q url.Values, allowed ...string) error {
 	for k, v := range q {
@@ -58,6 +65,7 @@ func checkParams(q url.Values, allowed ...string) error {
 // panelParams is a parsed and clamped /api/panel query.
 type panelParams struct {
 	group    string
+	targets  []string // instead of group: these targets, from any groups
 	from, to time.Time
 	points   int
 }
@@ -111,12 +119,29 @@ func parseDur(s string) (time.Duration, error) {
 
 func parsePanelParams(q url.Values, now time.Time) (panelParams, error) {
 	var p panelParams
-	if err := checkParams(q, "group", "from", "to", "points"); err != nil {
+	if err := checkParams(q, "group", "targets", "from", "to", "points"); err != nil {
 		return p, err
 	}
 	p.group = q.Get("group")
-	if p.group == "" || len(p.group) > 64 {
-		return p, badReq("group is required")
+	if ts := q.Get("targets"); ts != "" {
+		if p.group != "" {
+			return p, badReq("group or targets, not both")
+		}
+		seen := map[string]bool{}
+		for _, n := range strings.Split(ts, ",") {
+			if n == "" || len(n) > 64 {
+				return p, badReq("bad target name")
+			}
+			if !seen[n] {
+				seen[n] = true
+				p.targets = append(p.targets, n)
+			}
+		}
+		if len(p.targets) > maxPanelTargets {
+			return p, badReq("at most %d targets", maxPanelTargets)
+		}
+	} else if p.group == "" || len(p.group) > 64 {
+		return p, badReq("group or targets is required")
 	}
 	fs, ts := q.Get("from"), q.Get("to")
 	if fs == "" {
@@ -201,6 +226,32 @@ func resolveGroup(p *model.Profile, id string) (model.Group, []panelSeries, time
 	return g, out, maxIv, nil
 }
 
+// resolveTargets is resolveGroup for a list of targets from any groups, in
+// the order asked for. Every name must be a target of the profile.
+func resolveTargets(p *model.Profile, names []string) ([]panelSeries, time.Duration, error) {
+	if p == nil {
+		return nil, 0, errUnknownTarget
+	}
+	byName := make(map[string]model.Target, len(p.Targets))
+	for _, t := range p.Targets {
+		byName[t.Name] = t
+	}
+	var out []panelSeries
+	var maxIv time.Duration
+	for _, n := range names {
+		t, ok := byName[n]
+		if !ok {
+			return nil, 0, errUnknownTarget
+		}
+		for _, k := range t.ProbeKinds() {
+			iv := intervalOf(t, k)
+			maxIv = max(maxIv, iv)
+			out = append(out, panelSeries{key: model.SeriesKey{Target: t.Name, Kind: k}, interval: iv})
+		}
+	}
+	return out, maxIv, nil
+}
+
 // panelData is a query result ready to render.
 type panelData struct {
 	group  model.Group
@@ -216,6 +267,10 @@ type panelData struct {
 // queryPanel resolves the group and runs exactly one store.Panel call.
 func (d *Deps) queryPanel(ctx context.Context, p panelParams, now time.Time) (*panelData, error) {
 	g, series, maxIv, err := resolveGroup(d.Profile(), p.group)
+	if len(p.targets) > 0 {
+		g = targetsGroup
+		series, maxIv, err = resolveTargets(d.Profile(), p.targets)
+	}
 	if err != nil {
 		return nil, err
 	}

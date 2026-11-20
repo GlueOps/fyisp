@@ -193,3 +193,59 @@ test('axe: the filter row, with matches and with none', async ({ page }) => {
     expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`), q).toEqual([]);
   }
 });
+
+// ---------- the combined chart ----------
+
+test('the filter\u2019s targets in one chart: from 2 to 8 of them, from any groups', async ({ page }) => {
+  /** @type {string[]} */
+  const asked = [];
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.endsWith('/api/panel') && u.searchParams.has('targets')) asked.push(u.searchParams.get('targets') || ''); });
+  await page.goto('/#v=c');
+  const one = page.getByRole('button', { name: /in one chart$/ });
+  await expect(one).toBeHidden();
+  await box(page).fill('zoom|github|netflix');
+  await expect(one).toHaveText('Show these 3 in one chart');
+  await one.click();
+  await expect(page).toHaveURL(/cc=1/);
+  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 3 targets');
+  await expect(charts(page)).toHaveCount(1);
+  await expect(page.locator('#panel-targets .u-over')).toBeVisible();
+  await expect(legend(page, 'targets')).toHaveText(['Zoom', 'dev-GitHub', 'Netflix']);
+  await expect(count(page)).toHaveText('3 targets in one chart');
+  expect(asked).toEqual(['Zoom,dev-GitHub,Netflix']);
+  // Each line has a colour of its own.
+  const colours = await page.locator('#panel-targets .legend .sw').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+  expect(new Set(colours).size).toBe(3);
+  // Narrowing the pattern changes the chart; one target left is a chart of its own again.
+  await box(page).fill('zoom|netflix');
+  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 2 targets');
+  await expect(legend(page, 'targets')).toHaveText(['Zoom', 'Netflix']);
+  await box(page).fill('zoom');
+  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(page.locator('#panel-call-apps')).toBeVisible();
+  // Back to separate charts.
+  await box(page).fill('zoom|netflix');
+  await expect(page.locator('#panel-targets')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to separate charts' }).click();
+  await expect(page).not.toHaveURL(/cc=1/);
+  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(charts(page)).toHaveCount(2);
+});
+
+test('more than 8 matches are not combined, and the link says why', async ({ page }) => {
+  await page.goto('/#v=c&cc=1&oq=' + encodeURIComponent('google|m365|cdn-'));
+  await expect(count(page)).toHaveText('12 targets in 3 of 4 charts');
+  const one = page.getByRole('button', { name: /in one chart$/ });
+  await expect(one).toBeDisabled();
+  await expect(page.locator('#cf-many')).toHaveText('One chart shows up to 8 targets: narrow the filter.');
+  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(charts(page)).toHaveCount(3);
+  // A link with a combined chart opens on it.
+  await page.goto('/#v=c&cc=1&oq=' + encodeURIComponent('^cdn-'));
+  await expect(page.locator('#panel-targets h2')).toHaveText('Combined chart: 5 targets');
+  await expect(legend(page, 'targets')).toHaveCount(5);
+  // Clear filter leaves it.
+  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(page.locator('#panel-targets')).toBeHidden();
+  await expect(charts(page)).toHaveCount(4);
+});

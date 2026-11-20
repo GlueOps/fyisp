@@ -59,7 +59,7 @@ No parameters. `profileJSON` in `internal/web/api.go`: `name`, `features` (`trac
 
 ### GET `api/panel` and `api/panel.csv`
 
-`group` (required), `from` (default `now-30m`), `to` (default `now`), `points` (10 to 2000, default 1000). The span is at most 90 days. The JSON (`panelData.JSON` in `internal/web/api.go`) has `group`, `tier`, `from`, `to`, `now`, `start`, `step` and `len`, and per series `target`, `kind` (`hop` for trace series) and the bucket arrays `mean`, `min`, `max`, `n`, `lost`, `gap` and `lost_by` (per loss reason). The CSV is the same data as a download. An unknown group is 404; a query that takes too long is 503 with `Retry-After: 2`.
+`group`, or instead `targets` (up to 16 target names of the profile, comma-separated, from any groups; the answer's `group` is then `targets`); `from` (default `now-30m`), `to` (default `now`), `points` (10 to 2000, default 1000). The span is at most 90 days. The JSON (`panelData.JSON` in `internal/web/api.go`) has `group`, `tier`, `from`, `to`, `now`, `start`, `step` and `len`, and per series `target`, `kind` (`hop` for trace series) and the bucket arrays `mean`, `min`, `max`, `n`, `lost`, `gap` and `lost_by` (per loss reason). The CSV is the same data as a download. An unknown group or target is 404; a query that takes too long is 503 with `Retry-After: 2`.
 
 ### GET `api/probes`
 
