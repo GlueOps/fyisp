@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/GlueOps/fyisp/compare/v0.15.0...v0.15.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **s3test:** class a request cut at its time bound as timeout_total ([#143](https://github.com/GlueOps/fyisp/issues/143)) ([a18656f](https://github.com/GlueOps/fyisp/commit/a18656f47555289c8a86aa7f89be70afe45a8fe0))
+
 ## [0.15.0](https://github.com/GlueOps/fyisp/compare/v0.14.0...v0.15.0) (2026-11-20)
 
 
