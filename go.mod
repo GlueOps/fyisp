@@ -11,7 +11,7 @@ replace github.com/urfave/cli/v2 => github.com/ipostelnik/cli/v2 v2.3.1-0.202103
 
 replace gopkg.in/yaml.v3 => gopkg.in/yaml.v3 v3.0.1
 
-replace github.com/quic-go/quic-go => github.com/chungthuang/quic-go v0.45.1-0.20260529212404-a9fddf436fc4
+replace github.com/quic-go/quic-go => github.com/chungthuang/quic-go v0.45.1
 
 require (
 	github.com/cloudflare/cloudflared v0.0.0-20261021105109-de6376c5af4a
