@@ -20,6 +20,7 @@ import {
   hatch, resetHatch, smooth, copyText,
 } from './core.js';
 import { Home, firstHome } from './home.js';
+import { PatternFilter, cleanPattern, MAX_PATTERN } from './filter.js';
 import { Speed } from './speed.js';
 import { mtrText, mtrJSON, mtrCSV, mtrCommand, pathpingCommand } from './invreport.js';
 
@@ -99,6 +100,10 @@ function fixKinds() {
 }
 /** @type {Panel[]} */
 let panels = [];
+/** The target filter of the Overview and Charts (state.oq); null until the profile is in. @type {PatternFilter|null} */
+let filter = null;
+/** The panel focus mode shows: the filter does not apply to it. @type {Panel|null} */
+let filterBypass = null;
 // Profiles with more panels than this load only the panels near the viewport
 // (big catalog profiles have 50+ panels).
 const LAZY_PANELS = 12;
@@ -213,7 +218,7 @@ function readHash() {
   state.view = v === 'o' || v === 'c' || v === 'calls' || v === 'speed' || v === 'storage' ? v : null;
   state.focus = p.get('f') || null;
   state.os = p.get('os') || '';
-  state.oq = p.get('oq') || '';
+  state.oq = cleanPattern(p.get('oq'));
   const og = p.get('og');
   state.og = og && GEOS.includes(og) ? og : '';
   state.op = p.get('op') === '1';
@@ -334,6 +339,9 @@ class Panel {
 
   height() { return this.isPath ? 200 : this.targets.length > 12 ? 300 : 240; }
 
+  /** Whether the filter leaves this target on the chart: every target on the path chart and in focus mode. */
+  matches(/** @type {string} */ name) { return this.isPath || filterBypass === this || !filter || filter.has(name); }
+
   /**
    * Probe kinds this panel shows. The network path shows its ICMP (or TCP
    * when ICMP is unavailable), and follows the header only when ICMP is
@@ -406,7 +414,7 @@ class Panel {
     const mk = this.mainKind();
     if (!baseOn || !state.band || !baselines.size || !mk) return;
     let list = this.targets
-      .filter((t) => !this.hidden.has(t.name) && t.kinds.includes(mk))
+      .filter((t) => !this.hidden.has(t.name) && this.matches(t.name) && t.kinds.includes(mk))
       .map((t) => ({ t, b: baselines.get(t.name + '\0' + mk) }))
       .filter((x) => x.b);
     if (list.length > BAND_MAX) list = list.filter((x) => (x.b?.ratio_now || 0) >= SLOW_RATIO);
@@ -445,6 +453,7 @@ class Panel {
     const mk = this.mainKind();
     let si = 1;
     for (const t of this.targets) {
+      if (!this.matches(t.name)) continue;
       const color = seriesColor(/** @type {number} */ (this.colors.get(t.name)));
       for (const k of CHART_KINDS) {
         if (!kinds.has(k) || !t.kinds.includes(k)) continue;
@@ -802,7 +811,8 @@ class Panel {
   }
 
   resize() {
-    if (!this.u) return;
+    // A hidden chart has no width: it is sized when it shows again.
+    if (!this.u || !this.chartEl.clientWidth) return;
     const w = this.width();
     if (Math.abs(w - this.u.width) > 1) this.u.setSize({ width: w, height: this.height() });
   }
@@ -822,7 +832,7 @@ class Panel {
   visibleSeries() {
     if (!this.data) return [];
     const kinds = this.kinds();
-    return this.data.series.filter((s) => kinds.has(s.kind) && !this.hidden.has(s.target));
+    return this.data.series.filter((s) => kinds.has(s.kind) && !this.hidden.has(s.target) && this.matches(s.target));
   }
 
   renderLegend() {
@@ -831,7 +841,7 @@ class Panel {
     const sel = this.kinds();
     for (const t of this.targets) {
       const kinds = CHART_KINDS.filter((k) => sel.has(k) && t.kinds.includes(k));
-      if (!kinds.length) continue;
+      if (!kinds.length || !this.matches(t.name)) continue;
       const ss = d.series.filter((s) => s.target === t.name && kinds.includes(s.kind));
       let n = 0, lost = 0;
       for (const s of ss) for (let i = 0; i < d.len; i++) { n += s.n[i]; lost += s.lost[i]; }
@@ -872,7 +882,7 @@ class Panel {
 
   /** @param {string} name @param {boolean} toggle */
   legendClick(name, toggle) {
-    const all = this.targets.map((t) => t.name);
+    const all = this.targets.map((t) => t.name).filter((n) => this.matches(n));
     if (toggle) {
       if (this.hidden.has(name)) this.hidden.delete(name); else this.hidden.add(name);
     } else {
@@ -1004,7 +1014,7 @@ class Panel {
     }
     const nodes = [h('div', { class: 't', text: fmtTime(d.start + i * d.step, d.to - d.from) })];
     const kinds = this.kinds();
-    const target = best ? best.target : (this.targets.find((t) => !this.hidden.has(t.name)) || this.targets[0])?.name;
+    const target = best ? best.target : (this.targets.find((t) => !this.hidden.has(t.name) && this.matches(t.name)) || this.targets[0])?.name;
     if (target) {
       const sw = h('span', { class: 'sw' });
       sw.style.background = seriesColor(/** @type {number} */ (this.colors.get(target)));
@@ -2442,7 +2452,8 @@ function panelShown(/** @type {Panel} */ p) {
   if (p.isPath) return true;
   if (currentView() !== 'c') return false;
   const fp = focusPanel();
-  return !fp || fp === p;
+  if (fp) return fp === p;
+  return !filter || p.targets.some((t) => filter.has(t.name));
 }
 function loadStale() { for (const p of panels) if (p.visible && p.stale && panelShown(p)) p.load(); }
 /** Worst first: state, then loss, then ratio. */
@@ -2514,8 +2525,9 @@ class Overview {
     this.hmLegend = h('div', { class: 'hm-legend' });
     this.hm = h('div', { class: 'hm' });
     this.hmWrap = h('div', { class: 'hm-wrap' }, this.hm);
-    this.filterIn = /** @type {HTMLInputElement} */ (h('input', { type: 'search', class: 'ov-q', placeholder: 'Filter: target, provider, city, country', 'aria-label': 'Filter targets' }));
-    this.filterIn.addEventListener('input', () => { state.oq = this.filterIn.value.trim(); writeHash(); this.applyRows(); });
+    this.filterIn = filterInput('Filter targets', 'ov-note');
+    this.filterIn.addEventListener('input', () => setQuery(this.filterIn.value));
+    this.fnote = h('p', { class: 'cf-note small', id: 'ov-note', text: FILTER_HINT });
     this.chips = h('div', { class: 'seg sm ov-geos', role: 'group', 'aria-label': 'Region' });
     this.probBtn = h('button', { class: 'btn sm', type: 'button', text: 'Problems only', onclick: () => { state.op = !state.op; writeHash(); this.renderControls(); this.applyRows(); } });
     this.cellChip = h('span', { class: 'ov-cell' });
@@ -2525,6 +2537,7 @@ class Overview {
     this.table = h('table', { class: 'ovt' }, h('thead', {}, this.thead), this.tbody);
     this.tableBox = h('div', { class: 'ovt-box' },
       h('div', { class: 'ov-controls' }, this.filterIn, this.chips, this.probBtn, this.cellChip, this.count),
+      this.fnote,
       h('div', { class: 'ovt-wrap' }, this.table));
     this.el = h('section', { class: 'panel overview', id: 'overview', 'aria-label': 'Overview of every target' },
       h('div', { class: 'panel-head' }, h('h2', { text: 'Overview' }), this.meta),
@@ -2767,7 +2780,7 @@ class Overview {
     this.chips.replaceChildren(h('button', { type: 'button', text: 'All', 'aria-pressed': String(!state.og), onclick: () => this.setGeo('') }),
       ...geos.filter((g) => g).map((g) => h('button', { type: 'button', text: GEO_SHORT[g], title: GEO_TITLE[g], 'aria-pressed': String(state.og === g), onclick: () => this.setGeo(g) })));
     this.probBtn.setAttribute('aria-pressed', String(state.op));
-    if (this.filterIn.value.trim() !== state.oq) this.filterIn.value = state.oq;
+    if (cleanPattern(this.filterIn.value) !== state.oq) this.filterIn.value = state.oq;
     const [pid, g] = this.cellFilter();
     if (pid) {
       const p = (this.provs || []).find((x) => x.id === pid);
@@ -2809,7 +2822,6 @@ class Overview {
 
   /** Filters and sorts the table rows, moving rows only when the order changed. */
   applyRows() {
-    const q = state.oq.toLowerCase();
     const [pid, pg] = this.cellFilter();
     const [sc, desc] = this.sortKey();
     /** @type {OvEntry[]} */
@@ -2819,7 +2831,7 @@ class Overview {
       total++;
       const t = e.t, st = e.row ? e.row.state : 'unmeasured';
       let ok = true;
-      if (q) ok = [t.name, t.provider_title, t.city, t.country].some((x) => x && x.toLowerCase().includes(q));
+      if (filter) ok = filter.has(t.name);
       if (ok && state.og) ok = geoOf(t) === state.og;
       if (ok && state.op) ok = PROBLEMS.has(st);
       if (ok && pid) ok = (t.provider || t.group) === pid && (pg === undefined || geoOf(t) === pg);
@@ -3642,6 +3654,79 @@ function goHome() {
 const viewSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'View' });
 const viewBar = h('div', { class: 'viewbar' }, viewSeg, h('span', { class: 'muted small vb-hint' }));
 const focusBar = h('div', { class: 'focusbar', role: 'status', hidden: true });
+
+// The target filter (state.oq): one pattern for the Overview's table and the
+// charts. Charts shows the charts with a matching target, and on them only
+// the matching targets' lines.
+const FILTER_HINT = 'A pattern (regular expression): ap-south-2|us-east finds either.';
+const FILTER_PROBLEM = {
+  invalid: 'This pattern isn’t valid (an unclosed bracket, for example). Showing the last results.',
+  slow: 'This pattern takes too long to match. Showing the last results.',
+};
+/** @param {string} label @param {string} note the id of its hint */
+function filterInput(label, note) {
+  return /** @type {HTMLInputElement} */ (h('input', { type: 'search', class: 'ov-q', maxlength: String(MAX_PATTERN), spellcheck: 'false', autocomplete: 'off',
+    placeholder: 'Filter: target, provider, city, country', 'aria-label': label, 'aria-describedby': note }));
+}
+const cfIn = filterInput('Filter charts', 'cf-note');
+const cfCount = h('span', { class: 'muted small cf-count' });
+const cfClear = h('button', { class: 'btn sm', type: 'button', text: 'Clear filter', hidden: true, onclick: () => { filterTyped = true; setQuery(''); cfIn.value = ''; cfIn.focus(); } });
+const cfNote = h('p', { class: 'cf-note small', id: 'cf-note', text: FILTER_HINT });
+const cfSay = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
+const cfNone = h('p', { class: 'cf-none muted', hidden: true });
+const chartFilter = h('div', { class: 'cfilter', hidden: true }, h('div', { class: 'cf-row' }, cfIn, cfCount, cfClear), cfNote, cfSay, cfNone);
+/** The user changed the filter here (a filter from the link is not announced). */
+let filterTyped = false;
+let queryTimer = 0;
+let sayTimer = 0;
+cfIn.addEventListener('input', () => setQuery(cfIn.value));
+
+/** Takes the text of a filter box: in the URL at once, in effect after a pause in typing. */
+function setQuery(/** @type {string} */ v) {
+  filterTyped = true;
+  state.oq = cleanPattern(v);
+  writeHash();
+  window.clearTimeout(queryTimer);
+  if (!state.oq) void filter?.set('');
+  else queryTimer = window.setTimeout(() => void filter?.set(state.oq), 150);
+}
+
+/** The filter changed: which charts show, their lines, the table's rows. */
+function applyFilter() {
+  for (const p of panels) {
+    const on = panelShown(p);
+    p.el.classList.toggle('off-view', !on);
+    if (p.isPath) continue;
+    if (!on) { p.ctl?.abort(); p.stale = true; } else if (p.data) p.render();
+  }
+  renderFilter();
+  ov?.applyRows();
+  loadStale();
+}
+
+/** The Charts filter row: the box, the count, Clear, and after a pause the hint or what is wrong. */
+function renderFilter() {
+  chartFilter.hidden = !(currentView() === 'c' && !focusPanel() && !(state.inv && inv));
+  if (document.activeElement !== cfIn && cleanPattern(cfIn.value) !== state.oq) cfIn.value = state.oq;
+  const names = filter ? filter.names : null;
+  const rest = panels.filter((p) => !p.isPath);
+  const n = names ? names.size : 0;
+  const shown = names ? rest.filter((p) => p.targets.some((t) => names.has(t.name))).length : rest.length;
+  cfClear.hidden = !state.oq;
+  cfCount.textContent = names ? `${fmtInt(n)} target${n === 1 ? '' : 's'} in ${fmtInt(shown)} of ${fmtInt(rest.length)} charts` : '';
+  cfNone.hidden = !(names && !n);
+  cfNone.textContent = names && !n ? `No target matches “${filter?.pattern}”.` : '';
+  window.clearTimeout(sayTimer);
+  sayTimer = window.setTimeout(() => {
+    const problem = filter && filter.problem ? FILTER_PROBLEM[filter.problem] : '';
+    for (const el of [cfNote, ov?.fnote]) {
+      if (!el) continue;
+      el.textContent = problem || FILTER_HINT;
+      el.classList.toggle('bad', !!problem);
+    }
+    if (filterTyped) cfSay.textContent = problem || (names ? (n ? cfCount.textContent : cfNone.textContent) : 'Filter cleared.');
+  }, 500);
+}
 /** The target focus mode has isolated on its chart, and its chart's first load. */
 let focused = '';
 let focusReady = Promise.resolve();
@@ -3669,7 +3754,8 @@ function renderViewBar() {
   hint.textContent = v === 'speed' ? 'Measured with short download and upload tests to public test servers'
     : v === 'storage' ? 'Measured with fresh connections, downloads and uploads to storage endpoints you add'
     : v === 'calls' ? 'Measured with tiny STUN tests over UDP, the path call audio and video take'
-    : v === 'o' ? `${fmtInt(allTargets.filter((t) => !t.layer).length)} targets; click a row to see its chart` : `${n} chart panel${n === 1 ? '' : 's'}`;
+    : v === 'o' ? `${fmtInt(allTargets.filter((t) => !t.layer).length)} targets; click a row to see its chart` : filter && filter.names ? '' : `${n} chart panel${n === 1 ? '' : 's'}`;
+  renderFilter();
 }
 
 /** Applies the view and focus to the page: which panels show, the focus bar, isolation. */
@@ -3694,6 +3780,12 @@ function applyView() {
   }
   if (calls) calls.el.hidden = v !== 'calls';
   const fp = focusPanel();
+  if (filterBypass !== fp) {
+    // Focus mode shows its target whatever the filter says: redraw the chart it takes and the one it leaves.
+    const was = filterBypass;
+    filterBypass = fp;
+    for (const p of [was, fp]) if (p && p.data) p.render();
+  }
   for (const p of panels) {
     p.el.classList.toggle('off-view', !panelShown(p));
     p.el.classList.toggle('focused', p === fp);
@@ -4121,6 +4213,8 @@ async function main() {
     if (location.hash === lastHash) return;
     lastHash = location.hash;
     readHash(); log.open = state.log;
+    window.clearTimeout(queryTimer);
+    void filter?.set(state.oq);
     renderControls(); applyView(); showView(); refreshAll();
   };
   window.addEventListener('hashchange', onNav);
@@ -4182,7 +4276,7 @@ async function main() {
   // The view switch, then Calls, the network path, the Overview or the charts: DOM order is visual order.
   const path = panels.filter((p) => p.isPath).map((p) => p.el);
   storageOn = !!(prof.features && prof.features.storage);
-  $('#panels').replaceChildren(viewBar, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => !p.isPath).map((p) => p.el));
+  $('#panels').replaceChildren(viewBar, chartFilter, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => !p.isPath).map((p) => p.el));
   if (panels.length > LAZY_PANELS && 'IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
@@ -4199,6 +4293,9 @@ async function main() {
     inv = new Investigate();
     $('#panels').after(inv.el);
   }
+  filter = new PatternFilter(targets.filter((t) => !t.layer).map((t) => ({ name: t.name, fields: [t.name, t.provider_title, t.city, t.country].filter((x) => !!x).map(String) })), applyFilter);
+  // A filter in the link is in effect before the first chart loads.
+  if (state.oq) await filter.set(state.oq);
   if (currentView() !== 'h' || (state.inv && inv)) {
     // Details first; Home joins when its first answer is in.
     applyView();
