@@ -24,7 +24,7 @@ require (
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.59.0
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -35,7 +35,7 @@ require (
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
@@ -60,7 +60,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
@@ -92,7 +92,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720211330-0afa2a65878a // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	modernc.org/libc v1.75.7 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
