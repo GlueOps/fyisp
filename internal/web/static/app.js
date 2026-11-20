@@ -882,11 +882,11 @@ class Panel {
 
   /** @param {string} name @param {boolean} toggle */
   legendClick(name, toggle) {
-    const all = this.targets.map((t) => t.name).filter((n) => this.matches(n));
+    const all = this.targets.map((t) => t.name);
     if (toggle) {
       if (this.hidden.has(name)) this.hidden.delete(name); else this.hidden.add(name);
     } else {
-      const isolated = !this.hidden.has(name) && all.every((n) => n === name || this.hidden.has(n));
+      const isolated = !this.hidden.has(name) && all.every((n) => n === name || this.hidden.has(n) || !this.matches(n));
       this.hidden = isolated ? new Set() : new Set(all.filter((n) => n !== name));
     }
     this.applyHidden();
@@ -3670,11 +3670,11 @@ function filterInput(label, note) {
 }
 const cfIn = filterInput('Filter charts', 'cf-note');
 const cfCount = h('span', { class: 'muted small cf-count' });
-const cfClear = h('button', { class: 'btn sm', type: 'button', text: 'Clear filter', hidden: true, onclick: () => { filterTyped = true; setQuery(''); cfIn.value = ''; cfIn.focus(); } });
+const cfClear = h('button', { class: 'btn sm', type: 'button', text: 'Clear filter', hidden: true, onclick: () => { setQuery(''); cfIn.value = ''; cfIn.focus(); } });
 const cfNote = h('p', { class: 'cf-note small', id: 'cf-note', text: FILTER_HINT });
 const cfSay = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
 const cfNone = h('p', { class: 'cf-none muted', hidden: true });
-const chartFilter = h('div', { class: 'cfilter', hidden: true }, h('div', { class: 'cf-row' }, cfIn, cfCount, cfClear), cfNote, cfSay, cfNone);
+const chartFilter = h('div', { class: 'cfilter', hidden: true }, h('div', { class: 'cf-row' }, cfIn, cfCount, cfClear), cfNote, cfNone);
 /** The user changed the filter here (a filter from the link is not announced). */
 let filterTyped = false;
 let queryTimer = 0;
@@ -3693,15 +3693,19 @@ function setQuery(/** @type {string} */ v) {
 
 /** The filter changed: which charts show, their lines, the table's rows. */
 function applyFilter() {
+  const shown = panels.filter((p) => panelShown(p));
+  for (const p of panels) p.el.classList.toggle('off-view', !shown.includes(p));
   for (const p of panels) {
-    const on = panelShown(p);
-    p.el.classList.toggle('off-view', !on);
     if (p.isPath) continue;
-    if (!on) { p.ctl?.abort(); p.stale = true; } else if (p.data) p.render();
+    if (!shown.includes(p)) { p.ctl?.abort(); p.stale = true; continue; }
+    // Targets isolated by hand that the filter now leaves out would leave an empty chart.
+    if (!p.targets.some((t) => p.matches(t.name) && !p.hidden.has(t.name))) p.hidden = new Set();
+    // Charts away from the viewport are drawn when they come near it (a big profile has 50 of them).
+    if (!p.visible) p.stale = true; else if (p.data) p.render();
   }
   renderFilter();
   ov?.applyRows();
-  loadStale();
+  if (lastRefresh) loadStale(); // the first refresh loads them
 }
 
 /** The Charts filter row: the box, the count, Clear, and after a pause the hint or what is wrong. */
@@ -3905,7 +3909,7 @@ function renderLayers() { for (const p of panels) if (p.isPath) p.renderLayers()
 function focusTarget(/** @type {string} */ name) {
   const p = panels.find((x) => x.targets.some((t) => t.name === name));
   if (!p) return;
-  if (!panelShown(p)) { openFocus(name); return; }
+  if (!panelShown(p) || !p.matches(name)) { openFocus(name); return; }
   p.isolate(name);
   const bar = $('.top');
   const top = p.el.getBoundingClientRect().top + window.scrollY - (getComputedStyle(bar).position === 'sticky' ? bar.offsetHeight : 0) - 8;
@@ -4276,7 +4280,7 @@ async function main() {
   // The view switch, then Calls, the network path, the Overview or the charts: DOM order is visual order.
   const path = panels.filter((p) => p.isPath).map((p) => p.el);
   storageOn = !!(prof.features && prof.features.storage);
-  $('#panels').replaceChildren(viewBar, chartFilter, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => !p.isPath).map((p) => p.el));
+  $('#panels').replaceChildren(viewBar, chartFilter, cfSay, focusBar, calls ? calls.el : '', speed ? speed.el : '', storageSlot, ...path, ov.el, ...panels.filter((p) => !p.isPath).map((p) => p.el));
   if (panels.length > LAZY_PANELS && 'IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {

@@ -3,17 +3,12 @@
 // pattern can arrive in a link: here the page can stop it (filter.js).
 // @ts-check
 
-self.onmessage = (/** @type {MessageEvent<{id:number,pattern:string,rows:string[][]}>} */ e) => {
-  const { id, pattern, rows } = e.data;
-  let re;
-  try {
-    re = new RegExp(pattern, 'i');
-  } catch {
-    self.postMessage({ id, invalid: true });
-    return;
-  }
+self.onmessage = (/** @type {MessageEvent<{pattern:string,rows:string[][]}>} */ e) => {
+  const re = new RegExp(e.data.pattern, 'i'); // the page has compiled it already
   /** @type {number[]} */
   const hits = [];
-  for (let i = 0; i < rows.length; i++) if (rows[i].some((s) => re.test(s))) hits.push(i);
-  self.postMessage({ id, hits });
+  e.data.rows.forEach((fields, i) => { if (fields.some((s) => re.test(s))) hits.push(i); });
+  self.postMessage({ hits });
 };
+// The page starts timing a match only once this has loaded.
+self.postMessage({ ready: true });

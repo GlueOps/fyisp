@@ -7,16 +7,19 @@
 
 /** The longest pattern taken, from the box or a link. */
 export const MAX_PATTERN = 100;
-/** A pattern still matching after this long is stopped. */
+/** A match still running after this long is stopped. */
 const LIMIT_MS = 250;
+/** A worker that hasn't loaded after this long is given up on (the text is then matched as it is). */
+const LOAD_MS = 5000;
 
 /**
  * The pattern as it is used: trimmed, capped, and without empty alternatives
- * at its ends ("a|b|" would otherwise match everything).
+ * at its ends ("a|b|" would otherwise match everything). An escaped bar at
+ * the end ("a\|") stays.
  * @param {string|null} s
  */
 export function cleanPattern(s) {
-  return (s || '').trim().slice(0, MAX_PATTERN).replace(/^\|+|\|+$/g, '').trim();
+  return (s || '').trim().slice(0, MAX_PATTERN).replace(/^[|\s]+/, '').replace(/(\\?)[|\s]+$/, (_, esc) => (esc ? '\\|' : ''));
 }
 
 export class PatternFilter {
@@ -33,93 +36,108 @@ export class PatternFilter {
     this.names = null;
     /** Why the pattern typed last is not in effect. @type {''|'invalid'|'slow'} */
     this.problem = '';
-    this.seq = 0;
-    /** The pattern being matched. */
-    this.want = '';
+    /** The match asked for and not yet answered. @type {{pattern:string,resolve:()=>void,timer:number,sent:boolean}|null} */
+    this.pending = null;
     /** @type {Worker|null} */
     this.worker = null;
-    this.timer = 0;
-    /** @type {(() => void)|null} */
-    this.settle = null;
+    this.ready = false;
+    /** No worker here: the text is matched as it is, not as a pattern. */
+    this.plain = false;
+    this.spawn();
   }
 
   has(/** @type {string} */ name) { return !this.names || this.names.has(name); }
 
+  /** Starts a worker; it loads while the user types. */
+  spawn() {
+    this.ready = false;
+    try {
+      const w = this.worker = new Worker('static/match.js');
+      w.onmessage = (/** @type {MessageEvent<{ready?:boolean,hits?:number[]}>} */ e) => {
+        if (w !== this.worker) return;
+        if (e.data.ready) { this.ready = true; this.send(); return; }
+        const p = this.pending;
+        if (p && p.sent) this.end(p.pattern, new Set((e.data.hits || []).map((i) => this.rows[i].name)), '');
+      };
+      w.onerror = () => { if (w === this.worker && !this.ready) this.noWorker(); };
+    } catch {
+      this.worker = null;
+      this.plain = true;
+    }
+  }
+
+  noWorker() {
+    this.worker?.terminate();
+    this.worker = null;
+    this.plain = true;
+    this.send();
+  }
+
   /**
    * Makes pattern the filter. The returned promise ends when it is in effect,
-   * or was refused (problem says why, and the last result stays).
+   * was refused (problem says why, and the last result stays) or was replaced.
    * @param {string} pattern already through cleanPattern
    * @returns {Promise<void>}
    */
   set(pattern) {
-    this.cancel();
-    if (!pattern) return this.done('', null, '');
+    const old = this.pending;
+    if (old) {
+      // A newer pattern replaces it; a match already running goes with its worker.
+      this.pending = null;
+      window.clearTimeout(old.timer);
+      if (old.sent) this.kill();
+      old.resolve();
+    }
+    if (!pattern) { this.apply('', null, ''); return Promise.resolve(); }
     if (pattern === this.pattern && !this.problem) return Promise.resolve();
     try {
-      new RegExp(pattern, 'i');
+      new RegExp(pattern, 'i'); // compiled only: it runs in the worker
     } catch {
-      return this.done(this.pattern, this.names, 'invalid');
+      this.apply(this.pattern, this.names, 'invalid');
+      return Promise.resolve();
     }
-    const id = ++this.seq;
-    const texts = this.rows.map((r) => r.fields);
-    try {
-      if (!this.worker) {
-        this.worker = new Worker('static/match.js');
-        this.worker.onmessage = (e) => this.answer(e.data);
-        this.worker.onerror = () => this.stop('slow');
-      }
-      this.worker.postMessage({ id, pattern, rows: texts });
-    } catch {
-      // No worker here: the text is matched as it is, not as a pattern.
-      const q = pattern.toLowerCase();
-      return this.done(pattern, new Set(this.rows.filter((r) => r.fields.some((s) => s.toLowerCase().includes(q))).map((r) => r.name)), '');
+    return new Promise((resolve) => {
+      const p = this.pending = { pattern, resolve, sent: false, timer: window.setTimeout(() => { if (this.pending === p && !p.sent) this.noWorker(); }, LOAD_MS) };
+      this.send();
+    });
+  }
+
+  /** Hands the pending match to the worker once it has loaded. The limit covers the matching, not the load. */
+  send() {
+    const p = this.pending;
+    if (!p || p.sent) return;
+    if (this.plain) {
+      const q = p.pattern.toLowerCase();
+      this.end(p.pattern, new Set(this.rows.filter((r) => r.fields.some((s) => s.toLowerCase().includes(q))).map((r) => r.name)), '');
+      return;
     }
-    this.want = pattern;
-    this.timer = window.setTimeout(() => this.stop('slow'), LIMIT_MS);
-    return new Promise((resolve) => { this.settle = resolve; });
+    if (!this.worker || !this.ready) return;
+    window.clearTimeout(p.timer);
+    p.sent = true;
+    this.worker.postMessage({ pattern: p.pattern, rows: this.rows.map((r) => r.fields) });
+    p.timer = window.setTimeout(() => { this.kill(); this.end(this.pattern, this.names, 'slow'); }, LIMIT_MS);
   }
 
-  /** @param {{id:number,hits?:number[],invalid?:boolean}} m */
-  answer(m) {
-    if (m.id !== this.seq || !this.settle) return;
-    window.clearTimeout(this.timer);
-    const settle = this.settle;
-    this.settle = null;
-    if (m.invalid || !m.hits) void this.done(this.pattern, this.names, 'invalid');
-    else void this.done(/** @type {string} */ (this.want), new Set(m.hits.map((i) => this.rows[i].name)), '');
-    settle();
-  }
-
-  /** Ends a match that is still running; the worker is replaced on the next one. */
-  stop(/** @type {'slow'} */ why) {
-    if (!this.settle) return;
-    window.clearTimeout(this.timer);
+  /** Stops the worker (and a match running in it) and starts the next one. */
+  kill() {
     this.worker?.terminate();
-    this.worker = null;
-    const settle = this.settle;
-    this.settle = null;
-    void this.done(this.pattern, this.names, why);
-    settle();
-  }
-
-  /** Drops a match in flight (a newer pattern replaces it), with its worker: it may be a slow one. */
-  cancel() {
-    if (!this.settle) return;
-    window.clearTimeout(this.timer);
-    this.worker?.terminate();
-    this.worker = null;
-    this.seq++;
-    const settle = this.settle;
-    this.settle = null;
-    settle();
+    this.spawn();
   }
 
   /** @param {string} pattern @param {Set<string>|null} names @param {''|'invalid'|'slow'} problem */
-  done(pattern, names, problem) {
+  end(pattern, names, problem) {
+    const p = this.pending;
+    this.pending = null;
+    if (p) window.clearTimeout(p.timer);
+    this.apply(pattern, names, problem);
+    p?.resolve();
+  }
+
+  /** @param {string} pattern @param {Set<string>|null} names @param {''|'invalid'|'slow'} problem */
+  apply(pattern, names, problem) {
     this.pattern = pattern;
     this.names = names;
     this.problem = problem;
     this.onChange();
-    return Promise.resolve();
   }
 }

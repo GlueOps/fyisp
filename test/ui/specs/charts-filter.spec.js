@@ -83,14 +83,77 @@ test('a pattern that isn’t valid keeps the last result and says so', async ({ 
   await expect(page.locator('#cf-note')).toContainText('regular expression');
 });
 
-test('a pattern that takes too long is stopped', async ({ page }) => {
-  // A matcher that never answers stands in for a pattern with runaway backtracking.
-  await page.route('**/static/match.js', (r) => r.fulfill({ contentType: 'text/javascript', body: 'self.onmessage = () => {};' }));
+test('a pattern that takes too long is stopped, and the next one works', async ({ page }) => {
   await page.goto('/#v=c');
   await expect(charts(page)).toHaveCount(4);
-  await box(page).fill('zoom');
+  // Nested repeats that can't match: seconds of backtracking on an 18-letter name.
+  await box(page).fill('^((.+)+)+!$');
   await expect(page.locator('#cf-note')).toContainText('takes too long');
   await expect(charts(page)).toHaveCount(4);
+  await box(page).fill('zoom');
+  await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+  await expect(page.locator('#cf-note')).toContainText('regular expression');
+});
+
+test('a matcher that is slow to load is waited for, not taken for a slow pattern', async ({ page }) => {
+  await page.route('**/static/match.js', async (r) => { await new Promise((ok) => setTimeout(ok, 700)); await r.continue(); });
+  await page.goto('/#v=c&oq=zoom');
+  await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+  await expect(charts(page)).toHaveCount(1);
+});
+
+test.describe('without the matcher', () => {
+  test.use({ failOk: [/match\.js/] });
+  test('the text is matched as it is', async ({ page }) => {
+    await page.route('**/static/match.js', (r) => r.fulfill({ status: 404, body: '' }));
+    await page.goto('/#v=c&oq=zoom');
+    await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+    await box(page).fill('zoom|slack'); // not a pattern here: no name has that text
+    await expect(count(page)).toHaveText('0 targets in 0 of 4 charts');
+  });
+});
+
+test('a target isolated by hand that the filter leaves out does not leave an empty chart', async ({ page }) => {
+  await page.goto('/#v=c');
+  await expect(legend(page, 'web')).toHaveCount(7);
+  await page.locator('#panel-web .legend li', { hasText: 'Netflix' }).click();
+  await expect(page.locator('#panel-web .legend li.off')).toHaveCount(6);
+  await box(page).fill('cdn-');
+  await expect(count(page)).toHaveText('5 targets in 1 of 4 charts');
+  await expect(legend(page, 'web')).toHaveCount(5);
+  await expect(page.locator('#panel-web .legend li.off')).toHaveCount(0);
+  // Isolating under a filter, then clearing it: still that one target.
+  await page.locator('#panel-web .legend li', { hasText: 'CDN-Fastly' }).click();
+  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(legend(page, 'web')).toHaveCount(7);
+  await expect(page.locator('#panel-web .legend li:not(.off) .name')).toHaveText(['CDN-Fastly']);
+});
+
+test('a chart hidden while the window changed width is drawn at the new width', async ({ page }) => {
+  await page.goto('/#v=c');
+  await expect(page.locator('#panel-web .u-over')).toBeVisible();
+  await box(page).fill('zoom');
+  await expect(charts(page)).toHaveCount(1);
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(charts(page)).toHaveCount(4);
+  const chart = await page.locator('#panel-web .chart').boundingBox();
+  await expect.poll(async () => (await page.locator('#panel-web .u-wrap').boundingBox())?.width).toBeCloseTo(/** @type {{width:number}} */ (chart).width, 0);
+});
+
+test('Back and a long pattern from a link', async ({ page }) => {
+  await page.goto('/#v=c&oq=zoom');
+  await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+  await page.goto('/#v=c&oq=slack');
+  await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+  await expect(legend(page, 'call-apps')).toHaveText(['Slack']);
+  await page.goBack();
+  await expect(legend(page, 'call-apps')).toHaveText(['Zoom']);
+  await expect(box(page)).toHaveValue('zoom');
+  // A pattern is cut at 100 characters.
+  await page.goto('/#v=c&oq=' + 'zoom|'.repeat(60));
+  await expect(count(page)).toHaveText('1 target in 1 of 4 charts');
+  expect((await box(page).inputValue()).length).toBeLessThanOrEqual(100);
 });
 
 test('the Overview and Charts share the pattern', async ({ page }) => {
@@ -102,6 +165,11 @@ test('the Overview and Charts share the pattern', async ({ page }) => {
   await expect(count(page)).toHaveText('2 targets in 1 of 4 charts');
   await page.getByRole('button', { name: 'Overview', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Filter targets' }).fill('cdn-');
+  await expect(page.locator('.ovt tbody tr:not(.none):visible')).toHaveCount(5);
+  // The Overview says what is wrong with a pattern too, to screen readers as well.
+  await page.getByRole('searchbox', { name: 'Filter targets' }).fill('cdn-(');
+  await expect(page.locator('#ov-note')).toContainText('isn’t valid');
+  await expect(page.locator('span.sr-only[role=status]', { hasText: 'isn’t valid' })).toHaveCount(1);
   await expect(page.locator('.ovt tbody tr:not(.none):visible')).toHaveCount(5);
 });
 
