@@ -204,7 +204,9 @@ or redacted view, and fyisp makes no reports:
 whoever has the admin token sees every address and host name. To show
 your connection to others, send a screenshot of Home, which shows no
 addresses, or review a `fyisp export` first (it lists the targets you
-measure; traceroute rows give the hop number, not its address). Every
+measure; traceroute rows give the hop number, not its address; `--survey`
+lists the routers past your provider with their addresses, never one in your
+own network or your provider's, and `--addrs` what your targets resolved to). Every
 route but the page needs the admin token, wherever the dashboard is reached
 from: 127.0.0.1, your network, a reverse proxy or a tunnel. If you put a
 tunnel or reverse proxy in front of the dashboard (cloudflared, Tailscale

@@ -47,7 +47,7 @@ func WriteAddrs(ctx context.Context, r SurveyReader, w, stderr io.Writer, from, 
 	n := 0
 	err := r.AddrPeriods(ctx, from, to, func(p store.AddrPeriod) error {
 		n++
-		return cw.Write([]string{p.Host, p.IP.String(), strconv.Itoa(p.Answers), p.First.UTC().Format(TimeFormat), p.Last.UTC().Format(TimeFormat)})
+		return cw.Write([]string{textCell(p.Host), p.IP.String(), strconv.Itoa(p.Answers), p.First.UTC().Format(TimeFormat), p.Last.UTC().Format(TimeFormat)})
 	})
 	if err != nil {
 		return err
@@ -120,9 +120,10 @@ func WriteSurvey(ctx context.Context, r SurveyReader, w, stderr io.Writer, targe
 				if hp.Status != model.HopSilent && hp.N > 0 {
 					minMs, meanMs, maxMs = fmtMs(hp.MinMs), fmtMs(math.Round(hp.SumMs/float64(hp.N)*1000)/1000), fmtMs(hp.MaxMs)
 				}
-				if err := cw.Write([]string{hour, h.Target, h.Host, strconv.Itoa(h.Port), p.Dest.String(), h.HopsVia,
+				// rdns comes from the network: never a spreadsheet formula.
+				if err := cw.Write([]string{hour, textCell(h.Target), textCell(h.Host), strconv.Itoa(h.Port), p.Dest.String(), h.HopsVia,
 					strconv.Itoa(p.Rounds), strconv.Itoa(p.Fixed), strconv.Itoa(p.Reached), strconv.Itoa(p.Complete),
-					strconv.Itoa(hp.TTL), hp.Status, ip, asnText, owner, rdns, strconv.Itoa(hp.N), minMs, meanMs, maxMs}); err != nil {
+					strconv.Itoa(hp.TTL), hp.Status, ip, asnText, textCell(owner), textCell(rdns), strconv.Itoa(hp.N), minMs, meanMs, maxMs}); err != nil {
 					return err
 				}
 			}

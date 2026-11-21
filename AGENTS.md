@@ -11,7 +11,7 @@ fyisp is one static Go binary (`./cmd/fyisp`). It probes services with TCP conne
 | `cmd/fyisp` | The binary: flags, wiring, subcommands (`profiles`, `export`, `paths`, `version`) |
 | `cmd/fyisp-webdev` | Dev server: the real UI and API over fake probes. Never released |
 | `internal/profile` | Target catalog (`catalog/*.yml`), named profiles, `default.yml`, Home tiles, `--config` |
-| `internal/probe`, `netinfo`, `trace` | Probes, gateway and ISP-edge discovery, traceroutes |
+| `internal/probe`, `netinfo`, `trace` | Probes, gateway and ISP-edge discovery, traceroutes, the path survey (`trace/survey.go`) |
 | `internal/store` | SQLite store (hourly zstd blobs, summaries, incidents, routes, speed tests) |
 | `internal/verdict`, `tiles`, `callq`, `baseline` | Whose fault it is, Home tiles, call quality, "normal" for each series |
 | `internal/speedtest` | Pure-Go iperf3 client and scheduler. Servers are in `internal/profile/catalog/iperf3/` |
@@ -115,4 +115,8 @@ Settled choices; reviewers shouldn't re-raise them.
 - **Speed over time** (Details → Speed) is in Mbit/s, never "% of normal": a score is against the server's last 14 days, so a lasting slowdown drifts back to 100%. The pooled line is the 90th percentile of each point ("your faster tests"), not a median, which sits on a far server and misses a slowdown above its speed. It has its own range (24 hours to 90 days) beside the heatmap's span, draws at most 8 targets (the palette's hues), and keeps its range, zoom and targets out of the URL. With one target chosen every test is its own point while about 0.6 fit to a pixel (more is a band that hides the line); the row view's scatter over the days is gone.
 - **Each round over time** (a storage campaign's results) is one chart with a line per target (show one alone, or pick several), not a panel each. It has three metrics, time to first byte (the default: every target has it), download and upload speed, and leaves out a schedule's hours between windows (a time fyisp wasn't running stays a gap). `part=timings` covers every round, not the cards' newest 50,000 attempts.
 - **GlueOps org, Apache-2.0** (Copyright GlueOps, LLC), module `github.com/glueops/fyisp` (lowercase, like other GlueOps Go modules). Tags up to v0.14.0 keep their earlier module path and MIT license.
+- **The path survey keeps hourly rows only** (`survey_hops`): no per-hop series, no stored TCP routes or route changes, no medians (about 4 rounds an hour). Paths over time come from the hourly rows. It never shares hops or bumps the tracer's route-change generation, and takes a router's token only from a full bucket, so the other traces measure as before.
+- **The survey's flow is fixed on Linux only.** macOS and BSD match TCP answers by source port, so a late answer would be taken for the next TTL's; there and on Windows (`hops_via=icmp`) rounds use changing ports and are not counted in `fixed_flow`.
+- **The survey skips UDP-only (STUN) and ICMP-only targets**, and its hops are classified when recorded (`classifyRoute`, shared with storage-test routes), not at export: an address of your network or provider is never stored.
+- **`--addrs` is keyed by host, not target**: the runner resolves hosts, and `fyisp export` has no profile; the survey rows carry both.
 - **No upgrade notes for installs before v0.15.0** (old image name, old macOS launchd label): everyone moves to v0.15.0 or newer.

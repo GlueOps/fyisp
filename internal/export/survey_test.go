@@ -25,7 +25,7 @@ func surveyStore(t *testing.T) *store.SQLite {
 	s.ObserveAddr("svc.example", netip.MustParseAddr("198.51.100.7"), 2)
 	now = now.Add(time.Minute)
 	s.ObserveAddr("svc.example", netip.MustParseAddr("198.51.100.8"), 2)
-	s.ObserveHop(model.HopInfo{IP: netip.MustParseAddr("203.0.113.1"), RDNS: "ae1.par.example.net", ASN: 64501, Owner: "TRANSIT"})
+	s.ObserveHop(model.HopInfo{IP: netip.MustParseAddr("203.0.113.1"), RDNS: "=ae1.par.example.net", ASN: 64501, Owner: "TRANSIT"})
 	s.ObserveSurvey(model.SurveyHour{Target: "svc", Hour: t0.Unix() / 3600, Host: "svc.example", Port: 443, HopsVia: "tcp",
 		Paths: []model.SurveyPath{{Dest: netip.MustParseAddr("198.51.100.7"), Rounds: 2, Fixed: 2, Reached: 2, Complete: 1, Hops: []model.SurveyHop{
 			{TTL: 1, Status: model.HopYours, N: 2, MinMs: 0.4, SumMs: 1, MaxMs: 0.6},
@@ -93,7 +93,7 @@ func TestExportSurvey(t *testing.T) {
 	want := []hop{
 		{"1", "yours", "", "", "your network", "", "2", "0.5"},
 		{"2", "provider", "", "64500", "your provider", "", "2", "2.5"},
-		{"3", "answered", "203.0.113.1", "64501", "TRANSIT", "ae1.par.example.net", "1", "80"},
+		{"3", "answered", "203.0.113.1", "64501", "TRANSIT", "'=ae1.par.example.net", "1", "80"},
 		{"3", "silent", "", "", "", "", "1", ""},
 		{"4", "answered", "198.51.100.7", "64502", "", "", "2", "90.5"},
 	}

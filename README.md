@@ -74,6 +74,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
 | `--retention 30d` | Keeps less history (the default is 90 days). Worth it with `--profile all`, which takes a lot of disk. |
+| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, to compare this site with another ([Comparing sites](docs/COMPARING-SITES.md)). With `--profile all` that is about 23 probes a second and roughly 1 to 4 GB over 90 days. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
 
 ### Docker
@@ -303,7 +304,8 @@ fyisp has no account and no telemetry, and its data stays on your machine. What 
 - **Wi-Fi or router.** To word Home's first box, fyisp reads whether its own connection is Wi-Fi (no network name, nothing about other devices) and whether the page is opened on the same machine, which is never stored, logged or returned (see [Wi-Fi or router?](docs/VERDICTS.md#wi-fi-or-router)). The connection type itself is in fyisp's log and in speed-test results.
 - **`--tunnel`** (off by default) connects to Cloudflare to publish the dashboard at a random `https://….trycloudflare.com` address (see [Remote access](#remote-access)). Cloudflare sees your public IP address and your machine's local address, and it decrypts the dashboard's traffic at its edge, the admin token included. Your DNS resolver sees the lookups of `api.trycloudflare.com` and Cloudflare's `argotunnel.com` names (or fyisp asks 1.1.1.1 over TLS), and the request for a tunnel goes through `HTTPS_PROXY` when that is set. The dashboard there needs the admin token, as everywhere. [SECURITY.md](SECURITY.md#what-leaves-your-machine) lists everything the tunnel sends.
 - **Storage tests** connect only to the S3-compatible endpoints you save as targets, over IPv4, and only when you ask: a check is one request, and a campaign sends rounds every few minutes (fresh connections, and with keys a download and an upload to your bucket under `fyisp-test/`) while it runs, and traceroutes the provider's address (as *Investigate* does) after the first round and after a connection failure. The endpoint sees your public IP address and your requests; your DNS resolver sees its name looked up for every fresh connection. Targets are kept in `storage-targets.json` in the data directory, readable by fyisp's user only, never in the database. Keys you enter are never shown again, logged or exported: a campaign holds them in memory until it ends, or a weekly schedule saves them in that file until it ends. Through `--tunnel` they pass through Cloudflare, so use keys scoped to a test bucket. [SECURITY.md](SECURITY.md#what-leaves-your-machine) has the details.
-- **A screenshot or export you send** shows what it says. Home and *What happened at …?* show no addresses; the Details charts, traceroutes and `fyisp export` include your router's and your provider's addresses.
+- **The path survey** (`--path-survey`, off by default) traces the TCP path to every target every 15 minutes, so every router on the way to them sees probes from your public IP address, as with *Investigate*. It keeps no address of your own network or your provider's (only "yours" and "provider", and the provider's network number), and no private address past it.
+- **A screenshot or export you send** shows what it says. Home and *What happened at …?* show no addresses; the Details charts and traceroutes include your router's and your provider's addresses. `fyisp export` lists your targets; its trace rows give the hop number, not the address; `--survey` gives the routers past your provider with their addresses, and `--addrs` the addresses your targets' names resolved to.
 
 ## ICMP permissions
 
@@ -429,6 +431,7 @@ Add `--build-arg VERSION=v0.1.0` to stamp a version. Releases are built by [`.gi
 - [What to measure](docs/PROFILES.md): Home's tiles, the profiles, the Overview and the `--config` format
 - [How fyisp decides](docs/VERDICTS.md): Good, Slow, Choppy and Down, the verdicts, and Wi-Fi or router
 - [Call quality](docs/CALL-QUALITY.md), [Speed tests](docs/SPEED-TESTS.md) and [Storage tests](docs/STORAGE-TESTS.md)
+- [Comparing sites](docs/COMPARING-SITES.md): the path survey, and telling GeoDNS, anycast, routing and congestion apart
 - [API](docs/API.md): every route, the `/metrics` series and the `fyisp export` columns
 - [STUN servers' terms](docs/STUN-TERMS.md), [iperf3 servers' terms](docs/IPERF3-TERMS.md) and [a note for iperf3 operators](docs/OPERATORS.md)
 - [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md)
