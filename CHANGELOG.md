@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.0](https://github.com/GlueOps/fyisp/compare/v0.15.1...v0.16.0) (2026-11-21)
+
+
+### Features
+
+* show each speed test for one target, and chart storage rounds over time ([#151](https://github.com/GlueOps/fyisp/issues/151)) ([cbde007](https://github.com/GlueOps/fyisp/commit/cbde00760acb1bb857dcdea164548f751e0a69a7))
+* **ui:** chart speed tests over time ([#150](https://github.com/GlueOps/fyisp/issues/150)) ([ed21b65](https://github.com/GlueOps/fyisp/commit/ed21b65bcfd91c04bb10a5332a8f3591d4a432dc))
+* **web:** filter charts with a pattern ([#145](https://github.com/GlueOps/fyisp/issues/145)) ([11762d1](https://github.com/GlueOps/fyisp/commit/11762d1885cbc359a2f81c6683aabb6884e9da1e))
+* **web:** serve speed tests over time ([#149](https://github.com/GlueOps/fyisp/issues/149)) ([e9c3f23](https://github.com/GlueOps/fyisp/commit/e9c3f235e897d0161c188056b827dcdff386a634))
+* **web:** show the filter's targets in one chart ([#146](https://github.com/GlueOps/fyisp/issues/146)) ([07ad189](https://github.com/GlueOps/fyisp/commit/07ad18969b77c12ca7bb92d22ceed456275e6144))
+
 ## [0.15.1](https://github.com/GlueOps/fyisp/compare/v0.15.0...v0.15.1) (2026-11-20)
 
 
