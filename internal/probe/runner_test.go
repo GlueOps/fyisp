@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -684,5 +685,35 @@ func TestDNSFirstLookupGrace(t *testing.T) {
 	r.resolve(tctx(t), hs)
 	if smp, ok := r.probe(tctx(t), s, nil); !ok || !smp.Lost || smp.Reason != model.ReasonDNS {
 		t.Errorf("%d failed lookups: ok=%v lost=%v reason=%v, want a DNS loss", DNSFailLimit, ok, smp.Lost, smp.Reason)
+	}
+}
+
+// TestResolveSticksToCurrentAddress: with round-robin DNS the host keeps
+// its address while DNS still returns it, and OnResolve sees each lookup.
+func TestResolveSticksToCurrentAddress(t *testing.T) {
+	a, b, c := netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.2"), netip.MustParseAddr("192.0.2.3")
+	answers := [][]netip.Addr{{a, b}, {b, a}, {b, c}, {c, b}}
+	i := 0
+	type seen struct {
+		ip netip.Addr
+		n  int
+	}
+	var got []seen
+	r := New(Options{Log: quietLog(),
+		Lookup: func(context.Context, string) ([]netip.Addr, error) { i++; return answers[i-1], nil },
+		OnResolve: func(host string, ip netip.Addr, n int) {
+			if host != "rr.example.test" {
+				t.Errorf("OnResolve host %q", host)
+			}
+			got = append(got, seen{ip, n})
+		},
+	}).(*runner)
+	hs := newHostState("rr.example.test")
+	for range answers {
+		r.resolve(tctx(t), hs)
+	}
+	want := []seen{{a, 2}, {a, 2}, {b, 2}, {b, 2}}
+	if !slices.Equal(got, want) {
+		t.Errorf("chosen addresses %v, want %v", got, want)
 	}
 }

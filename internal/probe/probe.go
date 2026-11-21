@@ -46,6 +46,10 @@ type Options struct {
 	// address is not known yet, their slots are not measured; while there is
 	// no default route they are lost with model.ReasonNoNetwork.
 	Path func() netinfo.Path
+	// OnResolve, when set, is called after every successful lookup with the
+	// address the host's probes use and the number of addresses DNS
+	// returned (see store.ObserveAddr).
+	OnResolve func(host string, ip netip.Addr, answers int)
 }
 
 // DNSFailLimit is the number of consecutive failed lookups after which a
