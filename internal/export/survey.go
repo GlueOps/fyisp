@@ -30,12 +30,13 @@ var (
 
 // SurveyReader reads the path survey's data (*store.SQLite).
 type SurveyReader interface {
-	store.SurveyReader
+	AddrPeriods(ctx context.Context, from, to time.Time, fn func(store.AddrPeriod) error) error
+	SurveyHours(ctx context.Context, from, to time.Time, fn func(model.SurveyHour) error) error
 	HopInfo(ctx context.Context, ip netip.Addr) (model.HopInfo, bool, error)
 }
 
 // noData is the note on stderr when --addrs or --survey finds nothing.
-const noData = "fyisp export: nothing in this range; --survey needs fyisp started with --path-survey\n"
+const noData = "fyisp export: nothing in this range (--addrs and --survey need fyisp started with --path-survey)\n"
 
 // WriteAddrs writes the address periods that overlap [from, to] as CSV;
 // a note goes to stderr when there are none.
@@ -98,6 +99,10 @@ func WriteSurvey(ctx context.Context, r SurveyReader, w, stderr io.Writer, targe
 		}
 		hour := time.Unix(h.Hour*3600, 0).UTC().Format(TimeFormat)
 		for _, p := range h.Paths {
+			dest := "" // in your own or your provider's network
+			if p.Dest.IsValid() {
+				dest = p.Dest.String()
+			}
 			for _, hp := range p.Hops {
 				n++
 				var ip, owner, rdns, asnText, minMs, meanMs, maxMs string
@@ -121,7 +126,7 @@ func WriteSurvey(ctx context.Context, r SurveyReader, w, stderr io.Writer, targe
 					minMs, meanMs, maxMs = fmtMs(hp.MinMs), fmtMs(math.Round(hp.SumMs/float64(hp.N)*1000)/1000), fmtMs(hp.MaxMs)
 				}
 				// rdns comes from the network: never a spreadsheet formula.
-				if err := cw.Write([]string{hour, textCell(h.Target), textCell(h.Host), strconv.Itoa(h.Port), p.Dest.String(), h.HopsVia,
+				if err := cw.Write([]string{hour, textCell(h.Target), textCell(h.Host), strconv.Itoa(h.Port), dest, h.HopsVia,
 					strconv.Itoa(p.Rounds), strconv.Itoa(p.Fixed), strconv.Itoa(p.Reached), strconv.Itoa(p.Complete),
 					strconv.Itoa(hp.TTL), hp.Status, ip, asnText, textCell(owner), textCell(rdns), strconv.Itoa(hp.N), minMs, meanMs, maxMs}); err != nil {
 					return err

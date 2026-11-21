@@ -172,7 +172,7 @@ CREATE INDEX speedtests_start ON speedtests(start_ms);
 // surveyDDL is the path survey's tables (schema v10), for comparing sites:
 // the address each host's probes used, and the hourly survey of every
 // target's TCP path. Neither holds the public address or an address of
-// the user's own network or provider (see trace.Mask).
+// the user's own network or provider (see classifyRoute in cmd/fyisp).
 const surveyDDL = `
 -- One row per period a host's probes used one address: answers is how
 -- many addresses DNS returned at the last lookup, last_ms that lookup.

@@ -2,8 +2,10 @@ package trace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -47,14 +49,7 @@ func (f *flowNet) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint1
 	return f.fakeNet.ProbeTransport(ctx, hops.TCP, dst, ttl, timeout)
 }
 
-func surveyTargetFor(t model.Target) *surveyTarget {
-	port := t.Port
-	if port == 0 {
-		port = 443
-	}
-	return &surveyTarget{st: &target{t: t, mode: model.TraceTCP, host: t.HostFor(model.KindTCP)}, port: port,
-		sport: surveyPort(t.Name), hour: model.SurveyHour{Target: t.Name, Host: t.HostFor(model.KindTCP), Port: port, HopsVia: "tcp"}}
-}
+func surveyTargetFor(t model.Target) *surveyTarget { return newSurveyTarget(t, "tcp") }
 
 // TestSurveyRound: a round probes the TCP host on the target's own port,
 // one TTL at a time, and records every TTL classified; the hour adds up
@@ -129,8 +124,9 @@ func TestSurveyFixedFlow(t *testing.T) {
 	}
 }
 
-// TestSurveyYieldsAtCap: a survey probe needs a full bucket, so a router
-// another trace just probed is not measured (not silent) that round.
+// TestSurveyYieldsAtCap: a survey probe needs a full bucket. A router
+// another trace just probed takes this survey's answer from it within
+// surveyReuse; after that the TTL is not measured (not silent) that round.
 func TestSurveyYieldsAtCap(t *testing.T) {
 	f := newFakeNet("62.1.1.1", "62.2.2.2")
 	now := time.Unix(1_800_000_000, 0)
@@ -138,14 +134,21 @@ func TestSurveyYieldsAtCap(t *testing.T) {
 	sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
 	tt := surveyTargetFor(model.Target{Name: "svc", Host: "198.51.100.1"})
 	tr.surveyRound(context.Background(), sv, tt) // learns the route
+	probes := len(f.log)
 	tr.lim.take(limitKey{addr: a("62.1.1.1")}, now)
 	h, _ := tr.surveyRound(context.Background(), sv, tt)
-	p := h.Paths[0]
-	if p.Rounds != 2 || p.Complete != 1 {
-		t.Errorf("path %+v, want 2 rounds, 1 complete", p)
+	if p := h.Paths[0]; p.Rounds != 2 || p.Complete != 2 || p.Hops[0].N != 2 || len(f.log)-probes != 1 {
+		// TTL 2's bucket hasn't refilled either (no time passed): only the
+		// destination, which the cap exempts, is probed.
+		t.Errorf("recent answer: path %+v, %d probes; want TTLs 1-2 reused (2 rounds complete, n=2, 1 probe)", p, len(f.log)-probes)
 	}
-	if p.Hops[0].TTL != 1 || p.Hops[0].N != 1 || p.Hops[0].Status != model.HopAnswered {
-		t.Errorf("TTL 1 = %+v, want measured once (the capped round not counted)", p.Hops[0])
+	now = now.Add(surveyReuse)
+	tr.lim.take(limitKey{addr: a("62.1.1.1")}, now)
+	tr.lim.take(limitKey{addr: a("62.1.1.1")}, now)
+	h, _ = tr.surveyRound(context.Background(), sv, tt)
+	p := h.Paths[0]
+	if p.Rounds != 3 || p.Complete != 2 || p.Hops[0].TTL != 1 || p.Hops[0].N != 2 || p.Hops[0].Status != model.HopAnswered {
+		t.Errorf("stale answer: path %+v, want 3 rounds, 2 complete, TTL 1 not measured in the third", p)
 	}
 }
 
@@ -171,7 +174,7 @@ func TestSurveyPacing(t *testing.T) {
 		o := Options{Survey: sv, RouterRate: 1, Timeout: 900 * time.Millisecond,
 			Resolve: func(_ context.Context, h string) ([]netip.Addr, error) { return []netip.Addr{a(h)}, nil }}
 		_, sink := runTracer(t, f, o, p)
-		time.Sleep(DefaultSurveyInterval + time.Minute)
+		time.Sleep(SurveyInterval + time.Minute)
 		mu.Lock()
 		missing := 0
 		for i := range n {
@@ -196,7 +199,7 @@ func TestSurveyPacing(t *testing.T) {
 		if len(smp) == 0 || lost > 0 {
 			t.Errorf("always-on trace: %d samples, %d hop-1 losses", len(smp), lost)
 		}
-		time.Sleep(DefaultSurveyInterval)
+		time.Sleep(SurveyInterval)
 		mu.Lock()
 		for i := range n {
 			if c := rounds[fmt.Sprintf("t%d", i)]; c < 2 || c > 3 {
@@ -205,5 +208,104 @@ func TestSurveyPacing(t *testing.T) {
 			}
 		}
 		mu.Unlock()
+	})
+}
+
+// TestSurveySilentDestination: a destination that never answers doesn't
+// make each round go one TTL deeper than the last.
+func TestSurveySilentDestination(t *testing.T) {
+	f := newFakeNet("62.1.1.1", "62.2.2.2")
+	f.silent = map[int]bool{}
+	for ttl := 3; ttl <= surveyMaxHops; ttl++ {
+		f.silent[ttl] = true
+	}
+	tr, _, _ := roundTracer(t, f, Options{})
+	sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
+	tt := surveyTargetFor(model.Target{Name: "svc", Host: "198.51.100.1"})
+	for i := range 6 {
+		before := len(f.log)
+		h, ok := tr.surveyRound(context.Background(), sv, tt)
+		if n := len(f.log) - before; !ok || n != 2+maxUnknown {
+			t.Fatalf("round %d: %d probes, want %d", i+1, n, 2+maxUnknown)
+		}
+		if p := h.Paths[0]; p.Reached != 0 {
+			t.Errorf("reached %d", p.Reached)
+		}
+	}
+}
+
+// TestSurveyDestinationPrivacy: a target on this network is not traced; one
+// in the provider's network is traced, but its address is not kept.
+func TestSurveyDestinationPrivacy(t *testing.T) {
+	f := newFakeNet("62.1.1.1")
+	tr, _, _ := roundTracer(t, f, Options{})
+	provider := a("203.0.113.50")
+	sv := NewSurvey(SurveyOptions{Sink: func(model.SurveyHour) {}, Classify: func(hs []netip.Addr) []model.SurveyClass {
+		out := testClassify(hs)
+		for i, h := range hs {
+			if h == provider {
+				out[i] = model.SurveyClass{Status: model.HopProvider, ASN: 64500}
+			}
+		}
+		return out
+	}})
+	if _, ok := tr.surveyRound(context.Background(), sv, surveyTargetFor(model.Target{Name: "nas", Host: "192.168.1.20"})); ok {
+		t.Error("a LAN target was traced")
+	}
+	h, ok := tr.surveyRound(context.Background(), sv, surveyTargetFor(model.Target{Name: "home", Host: provider.String()}))
+	if !ok || len(h.Paths) != 1 || h.Paths[0].Dest.IsValid() {
+		t.Fatalf("provider target: %+v, want one path without a destination address", h)
+	}
+	for _, hp := range h.Paths[0].Hops {
+		if hp.IP == provider {
+			t.Errorf("hop %+v keeps the provider address", hp)
+		}
+	}
+}
+
+// TestSurveyTargets: TCP and HTTPS targets only; not the gateway, the ISP
+// edge, UDP-only or ICMP-only targets.
+func TestSurveyTargets(t *testing.T) {
+	p := &model.Profile{Targets: []model.Target{
+		{Name: "tcp", Host: "a.example"},
+		{Name: "https", Host: "b.example", Kinds: []model.ProbeKind{model.KindHTTPS}},
+		{Name: "icmp", Host: "c.example", Kinds: []model.ProbeKind{model.KindICMP}},
+		{Name: "stun", Host: "d.example", Port: 3478, Kinds: []model.ProbeKind{model.KindUDP}},
+		{Name: "gw", Host: model.HostGateway, Kinds: []model.ProbeKind{model.KindICMP}, Layer: model.LayerGateway},
+		{Name: "anycast", Host: "1.1.1.1", Kinds: []model.ProbeKind{model.KindTCP}, Layer: model.LayerAnycast},
+	}}
+	var got []string
+	for _, x := range SurveyTargets(p) {
+		got = append(got, x.Name)
+	}
+	if !slices.Equal(got, []string{"tcp", "https"}) {
+		t.Errorf("survey targets %v", got)
+	}
+}
+
+// TestSurveyStatus: unavailable when the tracer can't start; first_pass
+// until every target was tried, a name that never resolves included.
+func TestSurveyStatus(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
+		f := newFakeNet("62.1.1.1")
+		p := &model.Profile{Targets: []model.Target{{Name: "ok", Host: "198.51.100.1"}, {Name: "nx", Host: "nx.example"}}}
+		o := Options{Survey: sv, Resolve: func(_ context.Context, h string) ([]netip.Addr, error) {
+			return nil, errors.New("no such host")
+		}}
+		runTracer(t, f, o, p)
+		if st := sv.Status(); st.State != SurveyFirstPass || st.Targets != 2 {
+			t.Errorf("at start: %+v", st)
+		}
+		time.Sleep(SurveyInterval + time.Minute)
+		if st := sv.Status(); st.State != SurveyOn || st.Covered != 2 {
+			t.Errorf("after one interval: %+v, want on with both tried", st)
+		}
+
+		bad := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
+		tr := newTracer(Options{Survey: bad, Log: quiet(), open: func() (hops.Prober, error) { return nil, errors.New("no ICMP") }})
+		if err := tr.Run(context.Background(), p, &recSink{}); err == nil || bad.Status().State != SurveyUnavailable {
+			t.Errorf("no ICMP socket: %v, %+v", err, bad.Status())
+		}
 	})
 }

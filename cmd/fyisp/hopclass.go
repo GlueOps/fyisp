@@ -7,6 +7,7 @@ import (
 	"github.com/glueops/fyisp/internal/model"
 	"github.com/glueops/fyisp/internal/netinfo"
 	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // classifyRoute says which hops of a route (in TTL order; invalid: no
@@ -62,5 +63,22 @@ func surveyClassify(path func() netinfo.Path) func([]netip.Addr) []model.SurveyC
 	return func(hs []netip.Addr) []model.SurveyClass {
 		out, _ := classifyRoute(hs, ispASN(path))
 		return out
+	}
+}
+
+// keepAddr is the probe runner's OnResolve with --path-survey: it keeps
+// the address each host's probes use (`fyisp export --addrs`), except
+// one on this network (a --config target on the LAN) or in this
+// connection's provider's network (it could be the user's own, a server at
+// home reached by its DDNS name).
+func keepAddr(st *store.SQLite, path func() netinfo.Path) func(host string, ip netip.Addr, answers int) {
+	return func(host string, ip netip.Addr, answers int) {
+		if !netinfo.IsPublic(ip) {
+			return
+		}
+		if isp := ispASN(path); isp != 0 && asn.Lookup(ip).ASN == isp {
+			return
+		}
+		st.ObserveAddr(host, ip, answers)
 	}
 }

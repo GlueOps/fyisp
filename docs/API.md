@@ -53,7 +53,7 @@ No parameters. `Status` in `internal/web/web.go`:
 
 `caps.icmp` is `udp`, `raw`, `iphlpapi` or `unavailable` (then `icmp_hint` says how to enable it). `store` may add `last_flush_err`, `dropped` and `rejected`.
 
-With `--path-survey`, `survey` says how the [path survey](COMPARING-SITES.md) is doing (`trace.SurveyStatus`): `{"state", "targets", "covered", "interval_s", "last_round"}`. `state` is `first_pass` until every target has had a round since the start, then `on`; `unavailable` when the tracer could not start (no ICMP socket, see the README's *ICMP permissions*, or no TCP traces on this OS); `off` once it stopped. `covered` counts the targets with a round since the start.
+With `--path-survey`, `survey` says how the [path survey](COMPARING-SITES.md) is doing (`trace.SurveyStatus`): `{"state", "targets", "covered", "interval_s", "last_round"}`. `state` is `first_pass` until every target has been tried since the start (one whose name doesn't resolve counts), then `on`; `unavailable` when the tracer could not start (no ICMP socket, see the README's *ICMP permissions*, or no TCP traces on this OS); `off` once it stopped. `covered` counts the targets tried since the start.
 
 ### GET `api/profile`
 
@@ -184,7 +184,7 @@ host,ip,answers,first_seen,last_seen
 github.com,140.82.121.4,1,2026-09-26T12:00:03.114Z,2026-09-26T18:41:03.502Z
 ```
 
-A host keeps its address while DNS still returns it (round-robin DNS doesn't start a new period at every lookup); `answers` is how many addresses the last lookup returned. A period's `last_seen` is its last lookup, written at most 10 minutes late; a restart starts a new period. Only public addresses are kept.
+They are kept only with `--path-survey`. A host keeps its address while DNS still returns it (round-robin DNS doesn't start a new period at every lookup); `answers` is how many addresses the last lookup returned. A period's `last_seen` is its last lookup, written at most 10 minutes late; a restart starts a new period. Only public addresses are kept, and none in your provider's network (it could be your own).
 
 **Path survey** (`--survey`), one row per hour, target, destination address, TTL and router, plus one per TTL for its unanswered probes:
 
@@ -196,4 +196,4 @@ hour,target,host,port,dest_ip,hops_via,rounds,fixed_flow,reached,complete,ttl,st
 2026-09-26T12:00:00.000Z,github,github.com,443,140.82.121.4,tcp,4,4,4,4,5,silent,,,,,1,,,
 ```
 
-`rounds`, `fixed_flow` (rounds sent as one flow, Linux), `reached` (the destination answered) and `complete` (no TTL skipped for the router cap) count the hour's rounds to `dest_ip`. `status` is `answered` (with `ip`; the destination is the last TTL's), `yours` (your network), `provider` (your provider's network, with its `asn`), `private` (a private address past your provider) or `silent` (`n` unanswered probes); only `answered` has an address. `hops_via` is `icmp` where the routers are found with ICMP (Windows). `owner` and `rdns` are what fyisp knows of the router now. RTTs are in milliseconds over the `n` answers. A `host`, `owner` or `rdns` (in `--addrs`, `host`) that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, as in the storage export. Comparing two sites from these files: [COMPARING-SITES.md](COMPARING-SITES.md).
+`rounds`, `fixed_flow` (rounds sent as one flow, Linux), `reached` (the destination answered) and `complete` (no TTL left out for the router cap; a capped TTL may instead take the same router's answer to another target's round within a minute) count the hour's rounds to `dest_ip`, which is empty for a target in your own or your provider's network. `status` is `answered` (with `ip`; the destination is the last TTL's), `yours` (your network), `provider` (your provider's network, with its `asn`), `private` (a private address past your provider) or `silent` (`n` unanswered probes); only `answered` has an address. `hops_via` is `icmp` where the routers are found with ICMP (Windows). `owner` and `rdns` are what fyisp knows of the router now. RTTs are in milliseconds over the `n` answers. A `host`, `owner` or `rdns` (in `--addrs`, `host`) that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, as in the storage export. Comparing two sites from these files: [COMPARING-SITES.md](COMPARING-SITES.md).

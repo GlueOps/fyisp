@@ -694,6 +694,7 @@ func (s *SQLite) Flush(ctx context.Context) error {
 	if _, err := s.writeTx(ctx, items, ups, tr, sv); err != nil {
 		return s.flushFailed(items, err)
 	}
+	pruneBase(s.svBase, s.o.Now())
 	if anyClosed {
 		if _, err := checkpoint(ctx, s.db.w); err != nil {
 			s.o.Log.Warn("store: checkpoint", "err", err)
@@ -756,7 +757,7 @@ func (s *SQLite) writeTx(ctx context.Context, items []*flushItem, ups []seriesUp
 	if err := writeTrace(ctx, tx, tr); err != nil {
 		return nil, err
 	}
-	if err := writeSurvey(ctx, tx, sv, s.svBase, s.o.Now()); err != nil {
+	if err := writeSurvey(ctx, tx, sv, s.svBase); err != nil {
 		return nil, err
 	}
 

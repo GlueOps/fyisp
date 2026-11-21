@@ -19,7 +19,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
-	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -354,14 +353,11 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 			log.Warn("network path discovery stopped", "err", err)
 		}
 	}()
-	// The address each host's probes use is kept for comparing sites
-	// (`fyisp export --addrs`); never a LAN address of a --config target.
-	runner := probe.New(probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current,
-		OnResolve: func(host string, ip netip.Addr, answers int) {
-			if netinfo.Traceable(ip) {
-				st.ObserveAddr(host, ip, answers)
-			}
-		}})
+	po := probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current}
+	if survey != nil {
+		po.OnResolve = keepAddr(st, ni.Current)
+	}
+	runner := probe.New(po)
 	// Speed tests: the load tap keeps loaded ICMP samples for latency
 	// under load; the windows are recorded for the charts.
 	speed, tap, wins, err := newSpeed(c, prof, st, mc, ni.Current, log)

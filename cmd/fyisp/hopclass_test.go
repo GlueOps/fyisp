@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/glueops/fyisp/internal/asn"
 	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
+	"github.com/glueops/fyisp/internal/store"
 )
 
 // TestClassifyRoute: your network and your provider's routers keep no
@@ -37,5 +41,32 @@ func TestClassifyRoute(t *testing.T) {
 		if c.IP.IsValid() {
 			t.Errorf("unknown provider: hop %d keeps %v", i+1, c.IP)
 		}
+	}
+}
+
+// TestKeepAddr: --addrs never keeps a LAN address or one in the provider's
+// network.
+func TestKeepAddr(t *testing.T) {
+	a := netip.MustParseAddr
+	st, err := store.Open(t.TempDir(), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	edge := a("1.0.0.1") // the provider's first router: its network is the provider's
+	keep := keepAddr(st, func() netinfo.Path { return netinfo.Path{Edge: edge} })
+	keep("nas.lan", a("192.168.1.20"), 1)
+	keep("home.example", a("1.1.1.1"), 1) // same network as the edge
+	keep("dns.google", a("8.8.8.8"), 2)
+	if err := st.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	st.AddrPeriods(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour), func(p store.AddrPeriod) error {
+		got = append(got, p.Host)
+		return nil
+	})
+	if len(got) != 1 || got[0] != "dns.google" {
+		t.Errorf("kept %v, want only dns.google", got)
 	}
 }

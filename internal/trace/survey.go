@@ -5,37 +5,48 @@ import (
 	"errors"
 	"hash/fnv"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo"
 	"github.com/glueops/fyisp/internal/netinfo/hops"
 )
 
 // The path survey (Options.Survey) traces the TCP path to every TCP and
-// HTTPS target of the profile once per Interval, to compare this site with
-// another (`fyisp export --survey`). It is separate from the always-on and
-// Investigate traces: it keeps no route, writes no per-hop series, never
-// bumps the route-change generation and never shares hops, so it cannot
-// change what they measure. It only shares the prober and the per-router
-// cap, where it yields: a survey probe takes a router's token only when
-// the bucket is full, so one is always left for the other traces.
+// HTTPS target of the profile once per SurveyInterval, to compare this
+// site with another (`fyisp export --survey`). It is separate from the
+// always-on and Investigate traces: it keeps no route of theirs, writes
+// no per-hop series, never bumps the route-change generation and never
+// uses their shared hops, so it cannot change what they measure. It only
+// shares the prober and the per-router cap, where it yields: a survey
+// probe takes a router's token only when the bucket is full, so one is
+// always left for the other traces.
 //
-// A round probes one TTL at a time towards the target's own TCP host and
-// port, on Linux from one source port per target (the same in every
-// round: one flow, see hops.FlowProber), and stops at the destination, at
-// an unreachable, after maxUnknown silent TTLs past the last that answered,
-// or at MaxHops. A capped TTL is not measured (never loss). Each round is
-// added to the target's hour (model.SurveyHour), which goes to Sink after
-// every round, and classified first (SurveyOptions.Classify) so no address
-// of the user's own network or provider is kept.
+// A round looks the target's TCP host up and probes one TTL at a time
+// towards it on the target's own port, on Linux from one source port per
+// target (the same in every round: one flow, see hops.FlowProber). It
+// stops at the destination, at an unreachable, after maxUnknown silent
+// TTLs past the last that answered (and past the last round's route), or
+// at surveyMaxHops. A TTL the cap refuses takes the same router's answer
+// to another survey round within surveyReuse when this target's last
+// route had it there, else it is not measured (never loss). Each round is
+// classified (SurveyOptions.Classify, the destination too) so no address
+// of the user's own network or provider is kept, and added to the
+// target's hour (model.SurveyHour), which goes to Sink after every round.
+// A target that resolves to an address on this network is not traced.
 
-// Survey defaults.
+// The survey's schedule and depth.
 const (
-	DefaultSurveyInterval = 15 * time.Minute
-	DefaultSurveyInFlight = 24
-	DefaultSurveyMaxHops  = 30
+	SurveyInterval = 15 * time.Minute
+	surveyInFlight = 24 // targets traced at once
+	surveyMaxHops  = 30
+	// surveyReuse: a TTL the router cap refuses takes the same router's
+	// answer to another survey round this recent instead (the routers
+	// every target shares get more rounds a second than the cap allows).
+	surveyReuse = time.Minute
 )
 
 // Source ports of survey flows: below Linux's default ephemeral range
@@ -45,12 +56,8 @@ const (
 	surveyPortRange = 12000
 )
 
-// SurveyOptions configures the path survey. Classify and Sink are
-// required.
+// SurveyOptions configures the path survey. Both fields are required.
 type SurveyOptions struct {
-	Interval time.Duration // one round per target per Interval (default 15m)
-	InFlight int           // targets traced at once (default 24)
-	MaxHops  int           // highest TTL (default 30)
 	// Classify says how each hop of a round is recorded: hops[i] is the
 	// router that answered TTL i+1 (invalid: none, or not measured), the
 	// last one the destination when it answered.
@@ -64,18 +71,27 @@ type SurveyOptions struct {
 type Survey struct {
 	o SurveyOptions
 
+	interval time.Duration // SurveyInterval (tests: shorter)
+
 	mu      sync.Mutex
 	state   string // SurveyOff until the tracer runs it
 	targets int
-	covered map[string]bool // targets with a round since the start
+	covered map[string]bool // targets tried since the start
 	last    time.Time       // end of the newest round
+	answers map[netip.Addr]reuse
+}
+
+// reuse is a router's newest answer to a survey probe (see surveyReuse).
+type reuse struct {
+	rtt time.Duration
+	at  time.Time
 }
 
 // Survey states (SurveyStatus.State).
 const (
 	SurveyOff         = "off"         // not started (or the tracer is not running)
 	SurveyUnavailable = "unavailable" // the tracer could not start (no ICMP socket)
-	SurveyFirstPass   = "first_pass"  // some targets have no round yet
+	SurveyFirstPass   = "first_pass"  // some targets have not been tried yet
 	SurveyOn          = "on"
 )
 
@@ -83,31 +99,21 @@ const (
 type SurveyStatus struct {
 	State     string    `json:"state"`
 	Targets   int       `json:"targets"`
-	Covered   int       `json:"covered"` // targets with at least one round since the start
+	Covered   int       `json:"covered"` // targets tried at least once since the start (a name that doesn't resolve counts)
 	Interval  int64     `json:"interval_s"`
 	LastRound time.Time `json:"last_round,omitzero"`
 }
 
-// NewSurvey returns a survey with o's defaults filled in.
+// NewSurvey returns a survey.
 func NewSurvey(o SurveyOptions) *Survey {
-	if o.Interval <= 0 {
-		o.Interval = DefaultSurveyInterval
-	}
-	if o.InFlight <= 0 {
-		o.InFlight = DefaultSurveyInFlight
-	}
-	if o.MaxHops <= 0 {
-		o.MaxHops = DefaultSurveyMaxHops
-	}
-	o.MaxHops = min(o.MaxHops, 255)
-	return &Survey{o: o, state: SurveyOff, covered: map[string]bool{}}
+	return &Survey{o: o, interval: SurveyInterval, state: SurveyOff, covered: map[string]bool{}, answers: map[netip.Addr]reuse{}}
 }
 
 // Status reports the survey's progress.
 func (sv *Survey) Status() SurveyStatus {
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
-	st := SurveyStatus{State: sv.state, Targets: sv.targets, Covered: len(sv.covered), Interval: int64(sv.o.Interval / time.Second), LastRound: sv.last}
+	st := SurveyStatus{State: sv.state, Targets: sv.targets, Covered: len(sv.covered), Interval: int64(sv.interval / time.Second), LastRound: sv.last}
 	if st.State == SurveyOn && st.Covered < st.Targets {
 		st.State = SurveyFirstPass
 	}
@@ -151,6 +157,15 @@ type surveyTarget struct {
 	busy  atomic.Bool // a round runs
 }
 
+func newSurveyTarget(t model.Target, via string) *surveyTarget {
+	host, port := t.HostFor(model.KindTCP), t.Port
+	if port == 0 {
+		port = 443
+	}
+	return &surveyTarget{st: &target{t: t, mode: model.TraceTCP, host: host}, port: port, sport: surveyPort(t.Name),
+		hour: model.SurveyHour{Target: t.Name, Host: host, Port: port, HopsVia: via}}
+}
+
 func surveyPort(name string) uint16 {
 	h := fnv.New32a()
 	h.Write([]byte(name))
@@ -166,16 +181,7 @@ func (tr *tracer) runSurvey(ctx context.Context, sv *Survey, ts []model.Target) 
 	}
 	targets := make([]*surveyTarget, 0, len(ts))
 	for _, t := range ts {
-		port := t.Port
-		if port == 0 {
-			port = 443
-		}
-		targets = append(targets, &surveyTarget{
-			st:    &target{t: t, mode: model.TraceTCP, host: t.HostFor(model.KindTCP)},
-			port:  port,
-			sport: surveyPort(t.Name),
-			hour:  model.SurveyHour{Target: t.Name, Host: t.HostFor(model.KindTCP), Port: port, HopsVia: via},
-		})
+		targets = append(targets, newSurveyTarget(t, via))
 	}
 	sv.mu.Lock()
 	sv.state, sv.targets = SurveyOn, len(targets)
@@ -185,22 +191,26 @@ func (tr *tracer) runSurvey(ctx context.Context, sv *Survey, ts []model.Target) 
 		sv.state = SurveyOff
 		sv.mu.Unlock()
 	}()
-	tr.o.Log.Info("path survey", "targets", len(targets), "interval", sv.o.Interval, "in_flight", sv.o.InFlight,
-		"max_hops", sv.o.MaxHops, "probes_per_s_estimate", float64(len(targets))*16/sv.o.Interval.Seconds())
+	tr.o.Log.Info("path survey", "targets", len(targets), "interval", sv.interval, "in_flight", surveyInFlight,
+		"max_hops", surveyMaxHops, "probes_per_s_estimate", float64(len(targets))*16/sv.interval.Seconds())
 	if len(targets) == 0 {
 		<-ctx.Done()
 		return
 	}
 
-	sem := make(chan struct{}, sv.o.InFlight)
+	sem := make(chan struct{}, surveyInFlight)
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	step := sv.o.Interval / time.Duration(len(targets))
-	// Rounds start at multiples of step since the epoch, target i at slot
-	// i of each pass, so a restart keeps the spacing.
-	next := tr.o.Now().Truncate(step).Add(step)
+	step := sv.interval / time.Duration(len(targets))
+	// Rounds start every step, target i at slot i of each pass (counted
+	// from the epoch), so a restart keeps the spacing.
+	slot := func(now time.Time) time.Time { return time.Unix(0, (now.UnixNano()/int64(step)+1)*int64(step)) }
+	next := slot(tr.o.Now())
 	i := int(next.UnixNano()/int64(step)) % len(targets)
 	for {
+		if now := tr.o.Now(); next.Sub(now) > step+time.Minute {
+			next = slot(now) // the clock was stepped back
+		}
 		if !sleepUntil(ctx, tr.o.Now, next) {
 			return
 		}
@@ -222,13 +232,14 @@ func (tr *tracer) runSurvey(ctx context.Context, sv *Survey, ts []model.Target) 
 			defer func() { <-sem }()
 			h, ok := tr.surveyRound(ctx, sv, t)
 			t.busy.Store(false)
-			if !ok {
-				return
+			if ok {
+				sv.o.Sink(h)
 			}
-			sv.o.Sink(h)
 			sv.mu.Lock()
 			sv.covered[t.st.t.Name] = true
-			sv.last = tr.o.Now()
+			if ok {
+				sv.last = tr.o.Now()
+			}
 			sv.mu.Unlock()
 		}()
 	}
@@ -250,11 +261,17 @@ func sleepUntil(ctx context.Context, now func() time.Time, at time.Time) bool {
 }
 
 // surveyRound traces t once and returns its hour so far (ok false: no
-// round, e.g. its name did not resolve).
+// round: its name did not resolve, or to an address on this network).
 func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) (model.SurveyHour, bool) {
+	// Look the name up now, not in the background as dest would: its last
+	// lookup is a round (15 minutes) old.
+	if _, err := netip.ParseAddr(t.st.host); err != nil {
+		tr.resolve(ctx, t.st)
+		t.st.resolveAt = tr.o.Now().Add(sv.interval)
+	}
 	dst, err := tr.dest(ctx, t.st)
-	if err != nil || !dst.Is4() {
-		tr.o.Log.Debug("path survey: no address", "target", t.st.t.Name, "err", err)
+	if err != nil || !dst.Is4() || !netinfo.IsPublic(dst) {
+		tr.o.Log.Debug("path survey: no public address", "target", t.st.t.Name, "addr", dst, "err", err)
 		return model.SurveyHour{}, false
 	}
 	tr.mu.Lock()
@@ -276,12 +293,13 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		unknown  = 0
 		last     = 0 // highest TTL that answered
 	)
-	for ttl := 1; ttl <= sv.o.MaxHops && ctx.Err() == nil; ttl++ {
+	for ttl := 1; ttl <= surveyMaxHops && ctx.Err() == nil; ttl++ {
 		var expect netip.Addr
 		if ttl-1 < len(t.route) {
 			expect = t.route[ttl-1]
 		}
-		if !expect.IsValid() {
+		own := expect.IsValid() // this target's last route has it
+		if !own {
 			expect = tr.lim.predict(ttl)
 		}
 		k := limitKey{ttl: ttl}
@@ -293,6 +311,11 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		if expect != dst {
 			var ok bool
 			if keys, ok = tr.lim.takeSpare(k, now); !ok {
+				if r, ok := sv.recent(expect, now); ok && own {
+					answered, rtts, probed = append(answered, expect), append(rtts, r), append(probed, true)
+					unknown, last = 0, ttl
+					continue
+				}
 				answered, rtts, probed = append(answered, netip.Addr{}), append(rtts, 0), append(probed, false)
 				complete = false
 				continue
@@ -317,6 +340,7 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		if a.IsValid() && !h.Reached {
 			tr.lim.answered(ttl, k.addr, a, keys, now)
 			tr.hops.seen(a)
+			sv.answered(a, h.RTT, now)
 		}
 		if h.Reached || h.Unreach {
 			reached = h.Reached
@@ -331,11 +355,23 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 	if ctx.Err() != nil {
 		return model.SurveyHour{}, false
 	}
+	// The route ends at the last TTL that answered (the destination when it
+	// did): a silent tail must not make the next round go deeper.
 	if last > 0 || reached {
-		t.route = answered
+		n := last
+		if reached {
+			n = len(answered)
+		}
+		t.route = slices.Clone(answered[:n])
 	}
 
-	cls := sv.o.Classify(answered)
+	// The destination is classified like a hop: one in this network's
+	// provider's network keeps no address either (it could be the user's
+	// own, a server at home reached by its DDNS name).
+	cls := sv.o.Classify(append(slices.Clone(answered), dst))
+	if dc := cls[len(cls)-1]; dc.Status != model.HopAnswered {
+		dst = netip.Addr{}
+	}
 	hourNow := tr.o.Now().Unix() / 3600
 	if t.hour.Hour != hourNow {
 		t.hour.Hour, t.hour.Paths = hourNow, nil
@@ -364,4 +400,29 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		p.AddHop(hp)
 	}
 	return t.hour.Clone(), true
+}
+
+// recent returns router's answer to another survey round within
+// surveyReuse.
+func (sv *Survey) recent(router netip.Addr, now time.Time) (time.Duration, bool) {
+	if !router.IsValid() {
+		return 0, false
+	}
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	r, ok := sv.answers[router]
+	return r.rtt, ok && now.Sub(r.at) < surveyReuse
+}
+
+func (sv *Survey) answered(router netip.Addr, rtt time.Duration, now time.Time) {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	if len(sv.answers) >= maxHopCache {
+		for a, r := range sv.answers {
+			if now.Sub(r.at) >= surveyReuse {
+				delete(sv.answers, a)
+			}
+		}
+	}
+	sv.answers[router] = reuse{rtt, now}
 }

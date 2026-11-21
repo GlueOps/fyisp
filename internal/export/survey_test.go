@@ -128,3 +128,23 @@ func TestExportSurvey(t *testing.T) {
 		t.Errorf("empty range: %q, stderr %q", b.String(), e.String())
 	}
 }
+
+// TestExportSurveyFilters: --target keeps only its targets; a destination
+// kept without its address (your provider's network) has an empty dest_ip.
+func TestExportSurveyFilters(t *testing.T) {
+	s := surveyStore(t)
+	s.ObserveSurvey(model.SurveyHour{Target: "home", Hour: t0.Unix() / 3600, Host: "home.example", Port: 443, HopsVia: "tcp",
+		Paths: []model.SurveyPath{{Rounds: 1, Hops: []model.SurveyHop{{TTL: 1, Status: model.HopProvider, ASN: 64500, N: 1, MinMs: 1, SumMs: 1, MaxMs: 1}}}}})
+	if err := s.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var b, e bytes.Buffer
+	if err := Write(context.Background(), s, &b, Options{Survey: true, Targets: []string{"home"}, Stderr: &e}); err != nil {
+		t.Fatal(err)
+	}
+	rows := csvRows(t, &b)
+	col := func(r []string, name string) string { return r[slices.Index(SurveyHeader, name)] }
+	if len(rows) != 2 || col(rows[1], "target") != "home" || col(rows[1], "dest_ip") != "" || col(rows[1], "status") != "provider" {
+		t.Errorf("rows %q", rows)
+	}
+}

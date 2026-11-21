@@ -90,17 +90,16 @@ func (s *SQLite) ObserveAddr(host string, ip netip.Addr, answers int) {
 	}
 	sv := &s.sv
 	c, ok := sv.addrs[host]
-	switch {
-	case ok && c.p.IP == ip:
+	if ok && c.p.IP == ip {
 		c.p.Last, c.p.Answers = now, answers
 		if now.Sub(c.written) < HopSeenInterval {
 			sv.addrs[host] = c
 			return
 		}
-	case ok:
-		s.queueAddrLocked(c.p) // its final Last
-		c = addrCur{p: AddrPeriod{Host: host, IP: ip, Answers: answers, First: now, Last: now}}
-	default:
+	} else {
+		if ok {
+			s.queueAddrLocked(c.p) // its final Last
+		}
 		c = addrCur{p: AddrPeriod{Host: host, IP: ip, Answers: answers, First: now, Last: now}}
 	}
 	c.written = now
@@ -161,8 +160,9 @@ func (sn surveySnap) empty() bool { return len(sn.addrs)+len(sn.survey) == 0 }
 
 // writeSurvey writes sn in tx. base (Flush's, guarded by flushMu) holds
 // the rounds an earlier run stored for an hour this run reports: read at
-// the first write of that hour, then added to every write.
-func writeSurvey(ctx context.Context, tx *sql.Tx, sn surveySnap, base map[surveyKey]*model.SurveyHour, now time.Time) error {
+// the first write of that hour, then added to every write (pruneBase
+// drops old hours once a write succeeded).
+func writeSurvey(ctx context.Context, tx *sql.Tx, sn surveySnap, base map[surveyKey]*model.SurveyHour) error {
 	for _, a := range sn.addrs {
 		p := a.p
 		if _, err := tx.ExecContext(ctx, `INSERT INTO target_addrs(host, ip, answers, first_ms, last_ms) VALUES(?,?,?,?,?)
@@ -191,9 +191,7 @@ func writeSurvey(ctx context.Context, tx *sql.Tx, sn surveySnap, base map[survey
 		}
 		h := ps.h
 		if b != nil {
-			m := *b
-			m.Paths = nil
-			m.Merge(*b)
+			m := b.Clone()
 			m.Merge(h)
 			m.Host, m.Port, m.HopsVia = h.Host, h.Port, h.HopsVia
 			h = m
@@ -206,13 +204,18 @@ func writeSurvey(ctx context.Context, tx *sql.Tx, sn surveySnap, base map[survey
 			return fmt.Errorf("store: survey_hops: %w", err)
 		}
 	}
+	return nil
+}
+
+// pruneBase drops the hours before the previous one from base: the
+// tracer no longer reports them.
+func pruneBase(base map[surveyKey]*model.SurveyHour, now time.Time) {
 	cur := now.Unix() / 3600
 	for k := range base {
 		if k.hour < cur-1 {
 			delete(base, k)
 		}
 	}
-	return nil
 }
 
 var (
@@ -247,19 +250,8 @@ func pruneSurvey(ctx context.Context, tx *sql.Tx, ms int64) error {
 	return err
 }
 
-// SurveyReader reads the path survey's data (`fyisp export --addrs` and
-// `--survey`). *SQLite implements it.
-type SurveyReader interface {
-	// AddrPeriods calls fn for every address period that overlaps
-	// [from, to], by host and start.
-	AddrPeriods(ctx context.Context, from, to time.Time, fn func(AddrPeriod) error) error
-	// SurveyHours calls fn for every target's survey of the hours that
-	// overlap [from, to], by hour and target.
-	SurveyHours(ctx context.Context, from, to time.Time, fn func(model.SurveyHour) error) error
-}
-
-var _ SurveyReader = (*SQLite)(nil)
-
+// AddrPeriods calls fn for every address period that overlaps [from, to],
+// by host and start (`fyisp export --addrs`).
 func (s *SQLite) AddrPeriods(ctx context.Context, from, to time.Time, fn func(AddrPeriod) error) error {
 	rows, err := s.db.r.QueryContext(ctx, `SELECT host, ip, answers, first_ms, last_ms FROM target_addrs
 		WHERE last_ms >= ? AND first_ms <= ? ORDER BY host, first_ms`, from.UnixMilli(), to.UnixMilli())
@@ -285,6 +277,8 @@ func (s *SQLite) AddrPeriods(ctx context.Context, from, to time.Time, fn func(Ad
 	return rows.Err()
 }
 
+// SurveyHours calls fn for every target's survey of the hours that
+// overlap [from, to], by hour and target (`fyisp export --survey`).
 func (s *SQLite) SurveyHours(ctx context.Context, from, to time.Time, fn func(model.SurveyHour) error) error {
 	rows, err := s.db.r.QueryContext(ctx, `SELECT hour, target, data FROM survey_hops WHERE hour >= ? AND hour <= ? ORDER BY hour, target`,
 		from.Unix()/3600, to.Unix()/3600)

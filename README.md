@@ -74,7 +74,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
 | `--retention 30d` | Keeps less history (the default is 90 days). Worth it with `--profile all`, which takes a lot of disk. |
-| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, to compare this site with another ([Comparing sites](docs/COMPARING-SITES.md)). With `--profile all` that is about 23 probes a second and roughly 1 to 4 GB over 90 days. |
+| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, to compare this site with another ([Comparing sites](docs/COMPARING-SITES.md)). It also keeps the address each target resolved to. With `--profile all` that is about 25 probes a second and roughly 1 to 4 GB over 90 days. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
 
 ### Docker

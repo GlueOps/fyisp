@@ -10,9 +10,9 @@ At every site, the same fyisp release with the same profile, and the survey on:
 fyisp --profile all --path-survey --retention 30d
 ```
 
-`--path-survey` traces the TCP path to every TCP and HTTPS target of the profile every 15 minutes (to the target's own host and port, one TTL at a time) and keeps each target's paths hour by hour: which router answered each TTL, how often and how fast. It is separate from *Investigate* and the always-on traces and doesn't change what they measure. With `--profile all` it adds about 23 probes a second and, over 90 days, roughly 1 to 4 GB of disk, hence the shorter `--retention`. What routers and targets see is in [OPERATORS.md](OPERATORS.md). Both machines need the right time (NTP): the files are matched by UTC time.
+`--path-survey` traces the TCP path to every TCP and HTTPS target of the profile every 15 minutes (to the target's own host and port, one TTL at a time) and keeps each target's paths hour by hour: which router answered each TTL, how often and how fast. It is separate from *Investigate* and the always-on traces and doesn't change what they measure. With `--profile all` it adds about 25 probes a second and, over 90 days, roughly 1 to 4 GB of disk, hence the shorter `--retention`. What routers and targets see is in [OPERATORS.md](OPERATORS.md). Both machines need the right time (NTP): the files are matched by UTC time.
 
-`api/status` shows the survey's progress (`survey.state` is `first_pass` until every target has had a round, about 15 minutes after the start).
+`api/status` shows the survey's progress (`survey.state` is `first_pass` until every target has been tried once, about 15 minutes after the start). `--path-survey` also keeps the address each target's name resolved to (`--addrs`).
 
 ## What to export
 
@@ -32,7 +32,7 @@ For every target that is slower from one site in the window (its `rtt_ms` in the
 
 | What the survey files show | Likely cause |
 |---|---|
-| Different `dest_ip` (and different addresses in `--addrs`) | GeoDNS: the name sends each site to a different place |
+| Different `dest_ip` (and different addresses in `--addrs`) | GeoDNS: the name sends each site to a different place (each round looks the name up just before it traces) |
 | Same `dest_ip`, a different router at the TTL before the destination, and a large gap in the destination's `min_ms` | Anycast: the same address answers from a different site |
 | Same `dest_ip`, different networks (`asn`) along the way | Routing: each site's providers carry it differently. The `asn` right after `provider` is the network that took it on |
 | Same path, but from one TTL on every later TTL's `min_ms` is higher, worst at busy hours | Congestion from that hop on |
@@ -41,10 +41,10 @@ For every target that is slower from one site in the window (its `rtt_ms` in the
 Some things to keep in mind:
 
 - **Use `min_ms`**, not one router's `mean_ms`: routers answer traceroutes at low priority, and a router's own answer can be slow while traffic through it is not. A real latency step carries on to every later TTL and to the destination.
-- **`n` is small**: about 4 rounds an hour. Look at several hours.
+- **`n` is small**: about 4 rounds an hour. Look at several hours. The routers every target goes through (yours, your provider's, often the first transit network's) get more survey rounds a second than fyisp's per-router cap allows; such a TTL takes the same router's answer to another target's round within the last minute, or is left out (`complete` < `rounds`).
 - **A row's `asn`** is the network that announces the router's address. Links between two networks are often numbered from one side, so the handoff may show one TTL early or late; `rdns` names often say the network and city.
-- **`fixed_flow` < `rounds`** means some rounds went out from changing ports (and on Windows, `hops_via` is `icmp`): with load balancing, those may mix routers of parallel paths. Compare sites that measure the same way.
-- **`yours`, `provider` and `private` rows have no address** by design: they are your network, your provider's, and private routers past it.
+- **`fixed_flow` < `rounds`** means some rounds went out from changing ports (and on Windows, `hops_via` is `icmp`): with load balancing, those may mix routers of parallel paths. Compare sites that measure the same way. Behind NAT (carrier-grade NAT, a cloud NAT gateway) the outside port can change from one round to the next even when `fixed_flow` = `rounds`: each round is one flow, but two routers at one TTL within an hour may still be parallel paths.
+- **`yours`, `provider` and `private` rows have no address** by design: they are your network, your provider's, and private routers past it. An empty `dest_ip` is a target in your own or your provider's network. Leave them out when comparing paths: each site's own network and provider differ by definition.
 
 ## A starting script
 
@@ -61,7 +61,7 @@ def latency(path):  # (target, hour) -> median rtt_ms
             d[(r["target"], r["ts"][:13])].append(float(r["rtt_ms"]))
     return {k: statistics.median(v) for k, v in d.items()}
 
-def survey(path):  # (target, hour) -> {dest, reached, path: [(ttl, status, ip, asn, min_ms)]}
+def survey(path):  # (target, hour) -> {dest, reached, hops: {ttl: (status, ip, asn, n, min_ms)}}
     d = {}
     for r in csv.DictReader(open(path)):
         s = d.setdefault((r["target"], r["hour"][:13]), {"dest": r["dest_ip"], "reached": 0, "hops": {}})
@@ -73,11 +73,11 @@ def survey(path):  # (target, hour) -> {dest, reached, path: [(ttl, status, ip, 
                 s["hops"][ttl] = (r["status"], r["ip"], r["asn"], int(r["n"]), float(r["min_ms"] or 0))
     return d
 
-def as_path(s):
+def as_path(s):  # the networks past each site's own network and provider
     out = []
     for ttl in sorted(s["hops"]):
-        a = s["hops"][ttl][2]
-        if a and (not out or out[-1] != a):
+        status, _, a = s["hops"][ttl][:3]
+        if status == "answered" and a and (not out or out[-1] != a):
             out.append(a)
     return out
 
@@ -91,8 +91,8 @@ def cause(a, b):
     pa, pb = as_path(a), as_path(b)
     if pa != pb:
         return "routing: A " + ">".join(pa) + " vs B " + ">".join(pb)
-    pen = lambda s: s["hops"].get(max(s["hops"]) - 1, (None, None))[1] if s["hops"] else None
-    if pen(a) != pen(b):
+    pen = lambda s: s["hops"].get(max(s["hops"]) - 1, (None, None))[1]
+    if a["reached"] and b["reached"] and a["hops"] and b["hops"] and pen(a) != pen(b):
         return "anycast (different last router)"
     return "same path: congestion or the site's own network"
 
