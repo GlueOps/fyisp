@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,6 +41,7 @@ import (
 	"github.com/glueops/fyisp/internal/probe"
 	"github.com/glueops/fyisp/internal/profile"
 	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
 	"github.com/glueops/fyisp/internal/tiles"
 	"github.com/glueops/fyisp/internal/trace"
 	"github.com/glueops/fyisp/internal/verdict"
@@ -103,6 +105,7 @@ type config struct {
 	adminToken  string
 	allowHosts  hostList
 	tunnel      bool
+	pathSurvey  bool
 	pprofAddr   string
 	logFormat   string
 	logLevel    string
@@ -168,6 +171,7 @@ func parseFlags(args []string) (config, error) {
 	// No env default: flag's usage prints defaults, and this one is a secret.
 	fs.StringVar(&c.adminToken, "admin-token", "", "token the dashboard and its API require (at least 32 letters, digits or - . _ ~, e.g. from openssl rand -hex 16); change it to sign every browser out (default: $FYISP_ADMIN_TOKEN, else a new random one at each start, shown as a link in the log)")
 	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL"), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
+	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY"), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (`fyisp export --survey`); see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else false)")
 	fs.Var(&c.allowHosts, "allow-host", "extra `name` the dashboard may be opened as, e.g. nas.local or nas.local:3000 (repeatable or comma-separated)")
 	fs.StringVar(&c.pprofAddr, "pprof", "", "serve Go pprof on this loopback address (debugging)")
 	fs.StringVar(&c.logFormat, "log-format", "auto", "log format: auto, text or json")
@@ -308,9 +312,15 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 	ni := netinfo.New(netinfo.Options{Log: log})
 	// Traceroutes: always-on for profile targets marked trace, on demand
 	// (Investigate) for any target. Hop owners come from the built-in table.
-	tr := trace.New(trace.Options{Log: log, Lookup: asn.Lookup, Path: ni.Current})
+	// The path survey reports each target's hour to the store.
+	var st *store.SQLite
+	var survey *trace.Survey
+	if c.pathSurvey {
+		survey = trace.NewSurvey(trace.SurveyOptions{Classify: surveyClassify(ni.Current), Sink: func(h model.SurveyHour) { st.ObserveSurvey(h) }})
+	}
+	tr := trace.New(trace.Options{Log: log, Lookup: asn.Lookup, Path: ni.Current, Survey: survey})
 
-	st, err := openStore(dir, prof, tr.Interval, log)
+	st, err = openStore(dir, prof, tr.Interval, log)
 	if err != nil {
 		var locked *lockedError
 		if errors.As(err, &locked) {
@@ -344,7 +354,14 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 			log.Warn("network path discovery stopped", "err", err)
 		}
 	}()
-	runner := probe.New(probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current})
+	// The address each host's probes use is kept for comparing sites
+	// (`fyisp export --addrs`); never a LAN address of a --config target.
+	runner := probe.New(probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current,
+		OnResolve: func(host string, ip netip.Addr, answers int) {
+			if netinfo.Traceable(ip) {
+				st.ObserveAddr(host, ip, answers)
+			}
+		}})
 	// Speed tests: the load tap keeps loaded ICMP samples for latency
 	// under load; the windows are recorded for the charts.
 	speed, tap, wins, err := newSpeed(c, prof, st, mc, ni.Current, log)
@@ -373,7 +390,12 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 		CustomProfile: c.configPath != "",
 		Store:         st,
 		Status: func() web.Status {
-			return web.Status{Version: version, Started: started, Caps: caps, Targets: len(warm.Only), Ready: warm.Ready()}
+			s := web.Status{Version: version, Started: started, Caps: caps, Targets: len(warm.Only), Ready: warm.Ready()}
+			if survey != nil {
+				ss := survey.Status()
+				s.Survey = &ss
+			}
+			return s
 		},
 		Metrics:   mc.Handler(),
 		Verdict:   eng,

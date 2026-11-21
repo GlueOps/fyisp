@@ -135,37 +135,20 @@ func storageTrace(tr trace.Tracer, path func() netinfo.Path) func(ctx context.Co
 		if !ok || len(route.Hops) == 0 {
 			return nil, 0, true // probes went out, nothing answered
 		}
-		isp := uint32(0)
-		if p := path(); p.Edge.IsValid() {
-			isp = asn.Lookup(p.Edge).ASN
-		}
 		hs := route.Hops
 		if n := len(hs); n > 0 && hs[n-1] == ip {
 			hs = hs[:n-1]
 		}
-		var out []model.StorageHop
-		var handoff uint32
-		seenISP := false
-		for _, h := range hs {
-			if !h.IsValid() {
-				out = append(out, model.StorageHop{}) // no answer
-				continue
-			}
-			info := asn.Lookup(h)
-			switch {
-			case !netinfo.Traceable(h) || storage.IsSelf(h):
-				out = append(out, model.StorageHop{Owner: model.HopYourNetwork})
-			case isp == 0 || info.ASN == isp || info.ASN == 0 && handoff == 0:
-				// The provider's own routers (or an unknown provider: maybe
-				// yours; or a router of no known network before the route
-				// leaves it: maybe the provider's unannounced space).
-				seenISP = true
-				out = append(out, model.StorageHop{ASN: info.ASN, Owner: model.HopYourProvider})
-			default:
-				if seenISP && handoff == 0 && info.ASN != 0 {
-					handoff = info.ASN
-				}
-				out = append(out, model.StorageHop{IP: h.String(), ASN: info.ASN, Owner: info.Owner})
+		cls, handoff := classifyRoute(hs, ispASN(path))
+		out := make([]model.StorageHop, len(cls))
+		for i, c := range cls {
+			switch c.Status {
+			case model.HopYours, model.HopPrivate:
+				out[i] = model.StorageHop{Owner: model.HopYourNetwork}
+			case model.HopProvider:
+				out[i] = model.StorageHop{ASN: c.ASN, Owner: model.HopYourProvider}
+			case model.HopAnswered:
+				out[i] = model.StorageHop{IP: c.IP.String(), ASN: c.ASN, Owner: asn.Lookup(c.IP).Owner}
 			}
 		}
 		return out, handoff, true
