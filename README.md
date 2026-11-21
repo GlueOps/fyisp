@@ -13,7 +13,7 @@ fyisp is one small program. The default makes 28 checks for homes and remote wor
 
 ## Quick start
 
-Pick your system. Each one has a **try it now** command that runs fyisp until you close the window, a way to **keep it running** in the background, and a **Docker** command. The commands also turn on a private HTTPS **share link** through Cloudflare, so you can open the dashboard from your phone or send it to your IT team; see [Share link](#share-link) to leave it off.
+Pick your system. **Try it now** runs fyisp until you close the window; **keep it running** starts it in the background. The commands also turn on an HTTPS **share link** through Cloudflare, so you can open the dashboard from your phone. The sign-in link that goes with it signs anyone in as you, with every address and traceroute, so send it only to someone you'd hand full control (for anyone else, send a screenshot of Home); see [Share link](#share-link) to leave it off.
 
 | Your system | Try it now | Keep it running | Docker |
 |---|---|---|---|
@@ -24,7 +24,7 @@ Pick your system. Each one has a **try it now** command that runs fyisp until yo
 
 \*Docker Desktop runs containers in a virtual machine, so fyisp measures that VM as your router: charts and speed tests are right, but *your Wi-Fi or your provider?* isn't about your real network. Use the launcher for that.
 
-The launchers download fyisp, check it against the release's published checksum, and run it until you stop it, with nothing to install. To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
+The launchers check the download against the release's checksum and install nothing; to read one first, see [Check before you run](#check-before-you-run).
 
 > **On a work laptop**, fyisp looks up each service's name about once a minute through your employer's DNS resolver, YouTube and Netflix included, and the share link opens a way in from the internet. Leave out `--tunnel` there, see [Privacy](#privacy) to leave services out, or run fyisp on a home machine on the same network.
 
@@ -36,8 +36,6 @@ Open **Terminal** (press ⌘-Space, type *Terminal*) and paste:
 curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --tunnel
 ```
 
-Next: [keep it running](#macos-launchagent), or use [Docker Desktop](#docker-on-macos-or-windows).
-
 ### Windows
 
 Open **PowerShell** (Start menu, type *PowerShell*; not Command Prompt) and paste:
@@ -46,8 +44,6 @@ Open **PowerShell** (Start menu, type *PowerShell*; not Command Prompt) and past
 & ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --tunnel
 ```
 
-Next: [keep it running](#windows-task-scheduler), or use [Docker Desktop](#docker-on-macos-or-windows).
-
 ### Linux
 
 Open a terminal and paste:
@@ -55,8 +51,6 @@ Open a terminal and paste:
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --tunnel
 ```
-
-Next: [keep it running with systemd](#linux-systemd), or use [Docker](#docker).
 
 ### What happens next
 
@@ -69,6 +63,7 @@ Next: [keep it running with systemd](#linux-systemd), or use [Docker](#docker).
      http://127.0.0.1:3000/#admin=…
 
      Dashboard over HTTPS:  https://calm-river-words-1234.trycloudflare.com/
+     It changes when the tunnel is replaced.
      To sign in there, open this link once (keep it private):
      https://calm-river-words-1234.trycloudflare.com/#admin=…
    ```
@@ -86,14 +81,14 @@ Leave the window open: fyisp records only while it runs. **Stop it** with Ctrl-C
 On Linux, a NAS or a Raspberry Pi, run the container on the host's network, so that fyisp sees your real home router. The first line makes your admin token once, in `~/.fyisp.env` (readable by you only), so that a restart doesn't sign you out; paste the same block again later to update fyisp:
 
 ```sh
-[ -s ~/.fyisp.env ] || (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\nFYISP_TUNNEL=1\n' "$(openssl rand -hex 16)" > ~/.fyisp.env)
+[ -s ~/.fyisp.env ] || { t=$(openssl rand -hex 16) && (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\nFYISP_TUNNEL=1\n' "$t" > ~/.fyisp.env); }
 docker pull ghcr.io/glueops/fyisp
 docker rm -f fyisp 2>/dev/null
 docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data --env-file ~/.fyisp.env ghcr.io/glueops/fyisp
 echo "Sign in: http://127.0.0.1:3000/#admin=$(sed -n 's/^FYISP_ADMIN_TOKEN=//p' ~/.fyisp.env)"
 ```
 
-Open the link the last line prints. If `docker` needs `sudo` on your system (e.g. Synology), put it before each `docker`. For the share link, see [Docker: share link, other machines and updates](#docker-share-link-other-machines-and-updates).
+Open the link the last line prints. If `docker` needs `sudo` on your system (e.g. Synology), put it before each `docker`. On a Synology without home folders (Control Panel → User → Advanced → *Enable user home service*), replace `~/.fyisp.env` with a path such as `/volume1/docker/fyisp.env` everywhere. For the share link, see [Docker: share link, other machines and updates](#docker-share-link-other-machines-and-updates).
 
 - **NAS screens** (Synology Container Manager, QNAP Container Station, Portainer, Unraid) can take a Compose project instead:
 
@@ -108,21 +103,22 @@ Open the link the last line prints. If `docker` needs `sudo` on your system (e.g
         FYISP_TUNNEL: "1"
       volumes: [fyisp:/data]
   volumes:
-    fyisp: {}
+    fyisp:
+      name: fyisp
   ```
 
-  Without a token of its own, fyisp makes a new one at every start and prints both sign-in links in the container's log. To keep one, add `FYISP_ADMIN_TOKEN` with 32 random letters and digits of your own (never one copied from a page). Update with `docker compose pull && docker compose up -d`, or the screen's *update* button.
+  Without a token of its own, fyisp makes a new one at every start and prints both sign-in links in the container's log. To keep one, add `FYISP_ADMIN_TOKEN` with 32 random letters and digits of your own (never one copied from a page). Update with the screen's *update* button, or `docker compose pull && docker compose up -d` in the project's folder.
 - **Raspberry Pi:** a Pi 2 or newer (`linux/arm/v7` or `linux/arm64`). The Pi 1 and the first Pi Zero (armv6) aren't supported.
 - **`ICMP unavailable` in the log** (`docker logs fyisp`): the host's ping setting blocks fyisp, which then can't tell your router from your provider; see [ICMP permissions](#icmp-permissions).
 
 #### Docker on macOS or Windows
 
-Docker Desktop works, with the caveat above: charts and speed tests are right, but *your Wi-Fi or your provider?* describes Docker's VM, not your network, so use the launcher for that. The container publishes the dashboard on this machine only.
+Docker Desktop works, with the [caveat above](#quick-start): *your Wi-Fi or your provider?* describes Docker's VM. With `--network host` the VM's network would stand in for yours just the same, so these commands publish the dashboard on this machine's `127.0.0.1` instead (the share link still works).
 
 macOS, in Terminal:
 
 ```sh
-[ -s ~/.fyisp.env ] || (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\nFYISP_TUNNEL=1\n' "$(openssl rand -hex 16)" > ~/.fyisp.env)
+[ -s ~/.fyisp.env ] || { t=$(openssl rand -hex 16) && (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\nFYISP_TUNNEL=1\n' "$t" > ~/.fyisp.env); }
 docker pull ghcr.io/glueops/fyisp
 docker rm -f fyisp 2>/dev/null
 docker run -d --name fyisp --restart unless-stopped -p 127.0.0.1:3000:3000 -v fyisp:/data --env-file ~/.fyisp.env ghcr.io/glueops/fyisp
@@ -147,14 +143,14 @@ The container comes back after a reboot once Docker Desktop starts: turn on *Sta
 - **Share link:** a few seconds after the start, print it with your token:
 
   ```sh
-  u=$(docker logs fyisp 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1); [ -n "$u" ] && echo "$u/#admin=$(sed -n 's/^FYISP_ADMIN_TOKEN=//p' ~/.fyisp.env)" || echo "no share link yet: try again in a few seconds"
+  u=$(docker logs fyisp 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | grep -v '//api\.' | tail -1); [ -n "$u" ] && echo "$u/#admin=$(sed -n 's/^FYISP_ADMIN_TOKEN=//p' ~/.fyisp.env)" || echo "no share link yet: try again in a few seconds"
   ```
 
   ```powershell
-  $u = (docker logs fyisp 2>&1 | Select-String -AllMatches 'https://[a-z0-9-]+\.trycloudflare\.com').Matches.Value | Select-Object -Last 1; if ($u) { "$u/#admin=" + ((Get-Content "$HOME\.fyisp.env" | Select-String '^FYISP_ADMIN_TOKEN=(.+)').Matches.Groups[1].Value) } else { 'no share link yet: try again in a few seconds' }
+  $u = (docker logs fyisp 2>&1 | Select-String -AllMatches 'https://[a-z0-9-]+\.trycloudflare\.com').Matches.Value | Where-Object { $_ -notmatch '//api\.' } | Select-Object -Last 1; if ($u) { "$u/#admin=" + ((Get-Content "$HOME\.fyisp.env" | Select-String '^FYISP_ADMIN_TOKEN=(.+)').Matches.Groups[1].Value) } else { 'no share link yet: try again in a few seconds' }
   ```
 
-  The link is new at every restart, update and reboot. To turn it off, set `FYISP_TUNNEL=0` in `~/.fyisp.env` and paste the block again.
+  The link is new at every restart, update and reboot; your token stays. To turn the share link off, set `FYISP_TUNNEL=0` in `~/.fyisp.env` and paste the block again. To sign everyone out (say, after you've shared the link), delete `~/.fyisp.env` and paste the block again for a new token.
 - **From another machine:** with `--network host`, replace `127.0.0.1` with the Docker host's address, e.g. `http://192.168.1.10:3000/#admin=…`. The image listens on all addresses (`FYISP_LISTEN=0.0.0.0:3000`), so the dashboard is reachable from your network, behind the token. For this machine only, add `--listen=127.0.0.1:3000` after the image name.
 - **By name:** to open it as `http://nas.local:3000` or a Tailscale MagicDNS name, add `--allow-host nas.local` after the image name. Otherwise fyisp answers *421 unknown host* (a guard against DNS rebinding).
 - **Options** go after the image name, e.g. `ghcr.io/glueops/fyisp --profile default,streaming`.
@@ -163,11 +159,9 @@ The container comes back after a reboot once Docker Desktop starts: turn on *Sta
 **Stop:** `docker stop fyisp`. **Update:** paste the same block again; the `fyisp` volume keeps your data and `~/.fyisp.env` your token. **Remove:** `docker rm -f fyisp`, `docker volume rm fyisp`, then delete `~/.fyisp.env`.
 
 <details>
-<summary>Docker's default network, Docker Desktop, and the image</summary>
+<summary>Docker's default network, and the image</summary>
 
 **Bridge network.** With Docker's default bridge network (`-p 3000:3000` instead of `--network host`), the container's gateway is Docker's bridge (`172.17.0.1`), not your home router. fyisp then measures the bridge as your router (always fine), and a Wi-Fi or router problem shows up one step too far out, as your provider or the wider internet. The charts are still right. To use it anyway, publish on this machine only with `-p 127.0.0.1:3000:3000`.
-
-**Docker Desktop (macOS, Windows)** runs containers inside a Linux VM: the gateway is the VM's virtual network, and with its host networking setting, `--network host` means the VM's network, not your Mac's or PC's. That is why the commands above publish a port instead.
 
 **The image** is published for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. It runs as an unprivileged user (65532) from a `scratch` image, keeps its data in the `/data` volume, and sets `FYISP_DATA_DIR=/data` and `FYISP_LISTEN=0.0.0.0:3000` (`--data-dir` and `--listen` after the image name override them). With a bridge network, ICMP works without extra capabilities on Docker 20.10+. With `--network host`, the host's `net.ipv4.ping_group_range` applies: if the log says ICMP is unavailable, see [ICMP permissions](#icmp-permissions).
 
@@ -175,14 +169,14 @@ The container comes back after a reboot once Docker Desktop starts: turn on *Sta
 
 ### Options
 
-Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell, and after the image name in Docker:
+Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell (quote a value with a comma, which PowerShell would otherwise split), and after the image name in Docker:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --tunnel --profile default,streaming
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --tunnel --profile default,streaming
+& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --tunnel --profile 'default,streaming'
 ```
 
 | Option | What it does |
@@ -204,12 +198,12 @@ less run.sh
 sh run.sh
 ```
 
-Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/glueops/fyisp/releases/latest) into one folder, keeping their names, then verify and run it:
+Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/glueops/fyisp/releases/latest) into one folder, keeping their names, then verify and run it (on macOS, `shasum -a 256` instead of `sha256sum`; use your file's name; the `gh` line is optional):
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing     # macOS: shasum -a 256 -c SHA256SUMS --ignore-missing
-gh attestation verify fyisp-linux-amd64 --repo glueops/fyisp   # optional
-chmod +x fyisp-linux-amd64 && ./fyisp-linux-amd64   # use your file's name
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify fyisp-linux-amd64 --repo glueops/fyisp
+chmod +x fyisp-linux-amd64 && ./fyisp-linux-amd64
 ```
 
 ```powershell
@@ -293,6 +287,7 @@ curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing && mv fyisp-darwin-arm64 fyisp && chmod +x fyisp
 
 tok=$(openssl rand -hex 16)
+mkdir -p ~/Library/LaunchAgents
 cat > ~/Library/LaunchAgents/io.github.glueops.fyisp.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -314,7 +309,7 @@ echo "Sign in once per browser: http://127.0.0.1:3000/#admin=$tok"
 fyisp now starts whenever you log in, with the admin token the last line printed (it is also in the plist). Its log is `~/Library/Logs/fyisp.log`. The share link is new at every start; a few seconds after one, print it with your token:
 
 ```sh
-u=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' ~/Library/Logs/fyisp.log | tail -1); echo "$u/#admin=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:FYISP_ADMIN_TOKEN' ~/Library/LaunchAgents/io.github.glueops.fyisp.plist)"
+u=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' ~/Library/Logs/fyisp.log | grep -v '//api\.' | tail -1); [ -n "$u" ] && echo "$u/#admin=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:FYISP_ADMIN_TOKEN' ~/Library/LaunchAgents/io.github.glueops.fyisp.plist)" || echo "no share link yet: try again in a few seconds"
 ```
 
 To leave the share link off, drop `<string>--tunnel</string>` from the plist before you paste it. To stop it for good: `launchctl bootout gui/$(id -u)/io.github.glueops.fyisp && rm ~/Library/LaunchAgents/io.github.glueops.fyisp.plist`. Downloaded with `curl`, the binary carries no quarantine mark, so Gatekeeper doesn't block it.
@@ -345,16 +340,18 @@ fyisp now starts, hidden, whenever you log in, with the admin token the last lin
 
 ```powershell
 $dir = "$env:LOCALAPPDATA\Programs\fyisp"
-$u = (Select-String -Path "$dir\fyisp.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com').Matches.Value | Select-Object -Last 1
+$u = (Select-String -Path "$dir\fyisp.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com').Matches.Value | Where-Object { $_ -notmatch '//api\.' } | Select-Object -Last 1
 "$u/#admin=" + [regex]::Match((Get-ScheduledTask fyisp).Actions[0].Arguments, '--admin-token ([0-9a-f]+)').Groups[1].Value
 ```
 
-To leave the share link off, drop `--tunnel ` from the `$action` line before you paste it. To stop fyisp for good: `Unregister-ScheduledTask -TaskName fyisp -Confirm:$false; Stop-Process -Name fyisp`.
+To leave the share link off, drop `--tunnel ` from the `$action` line before you paste it. To stop fyisp for good: `Unregister-ScheduledTask -TaskName fyisp -Confirm:$false; Stop-Process -Name fyisp -ErrorAction SilentlyContinue`.
 
 ### Linux (systemd)
 
+On an ARM machine, change `amd64` to `arm64`, or to `armv7` on a 32-bit Raspberry Pi:
+
 ```sh
-arch=amd64   # or arm64, armv7 (a Raspberry Pi)
+arch=amd64
 curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-$arch
 curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
@@ -372,11 +369,11 @@ fyisp now runs whenever the machine is on, from boot. With its generated token, 
 sudo journalctl -u fyisp -b | grep -oE 'https?://[^ "]*#admin=[0-9a-f]*' | tail -2
 ```
 
-To leave the share link off, skip the `tunnel.conf` lines (or delete that file and restart fyisp). [`packaging/fyisp.service`](packaging/fyisp.service) runs it as a transient unprivileged user (`DynamicUser`) with a read-only system, no access to home directories and a system-call filter; data lives in `/var/lib/fyisp`. Options go in a drop-in (`sudo systemctl edit fyisp`), e.g. `Environment=FYISP_PROFILE=default,streaming`; the comments in the unit show how to pass other flags (e.g. `--speedtest`), keep one admin token across restarts, or grant `CAP_NET_RAW`. With your own token, the sign-in link is `http://127.0.0.1:3000/#admin=<token>`, and the share link's address is in the journal (`sudo journalctl -u fyisp -b | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1`) with `/#admin=<token>` after it.
+To leave the share link off, skip the `tunnel.conf` lines (or delete that file and restart fyisp). [`packaging/fyisp.service`](packaging/fyisp.service) runs it as a transient unprivileged user (`DynamicUser`) with a read-only system, no access to home directories and a system-call filter; data lives in `/var/lib/fyisp`. Options go in a drop-in (`sudo systemctl edit fyisp`), e.g. `Environment=FYISP_PROFILE=default,streaming`; the comments in the unit show how to pass other flags (e.g. `--speedtest`), keep one admin token across restarts, or grant `CAP_NET_RAW`. With your own token, the sign-in link is `http://127.0.0.1:3000/#admin=<token>`, and the share link is the journal's newest `trycloudflare.com` address with `/#admin=<token>` after it.
 
 ### Docker, NAS and Raspberry Pi
 
-The [Docker commands](#docker) already use `--restart unless-stopped`: the container comes back after a reboot as long as Docker itself starts at boot (the default on Linux; on Docker Desktop, turn on *Start Docker Desktop when you sign in*).
+The [Docker commands](#docker) already use `--restart unless-stopped`: the container comes back after a reboot as long as Docker itself starts at boot (the default on Linux; for Docker Desktop, see [Docker on macOS or Windows](#docker-on-macos-or-windows)).
 
 ## Call quality
 
@@ -465,7 +462,11 @@ Everything fyisp serves except the page itself needs the admin token: the dashbo
 ## Upgrading
 
 - **Launcher (`run.sh`, `run.ps1`):** stop fyisp and run the same command again. It always fetches the latest release.
-- **Docker:** paste the same [Docker block](#docker) again: it pulls the image and recreates the container, the volume keeps your data and `~/.fyisp.env` your token. With Compose: `docker compose pull && docker compose up -d`.
+- **Docker:** paste the same [Docker block](#docker) again: it pulls the image and recreates the container, the volume keeps your data and `~/.fyisp.env` your token. With Compose: `docker compose pull && docker compose up -d` in the project's folder. If you started fyisp with an older README's command, which kept the token in a `fyisp-token` file, move that token over first, in the folder that holds the file (this keeps the share link off; add a `FYISP_TUNNEL=1` line to turn it on):
+
+  ```sh
+  [ -s ~/.fyisp.env ] || (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\n' "$(cat fyisp-token)" > ~/.fyisp.env)
+  ```
 - **Installed binary** ([Keep it running](#keep-it-running)): download the new `fyisp-<os>-<arch>`, verify it, replace the old file and restart the service.
 
 Upgrading keeps your history. When a release changes the database format, its first start upgrades the database in place and logs `store: database upgraded from schema vN to vM`. A database from before v0.11.0 is the exception: it is replaced with an empty one, and fyisp logs `store: database from an older fyisp (schema vN) replaced with a new empty one`. Going back to an older release never wipes data: fyisp refuses a database from a newer version and leaves it untouched. fyisp makes no backups of its database; to keep one, stop fyisp and copy `fyisp.db`, and `storage-targets.json` if you saved storage targets (`fyisp paths` shows where they are).
@@ -504,8 +505,8 @@ It holds the database (`fyisp.db`), its lock file and, once you save storage tar
 To uninstall, stop fyisp, then delete its data directory and the binary. The launchers leave no binary behind; only the data directory remains.
 
 - **Linux:** `rm -rf ~/.local/state/fyisp` (or the directory `fyisp paths` printed).
-- **macOS:** `rm -rf ~/Library/Application\ Support/fyisp`.
-- **Windows:** `Remove-Item -Recurse "$env:LOCALAPPDATA\fyisp"`.
+- **macOS:** `rm -rf ~/Library/Application\ Support/fyisp`, and after the LaunchAgent, `rm -f ~/.local/bin/fyisp ~/.local/bin/SHA256SUMS ~/Library/Logs/fyisp.log`.
+- **Windows:** `Remove-Item -Recurse "$env:LOCALAPPDATA\fyisp"`, and after Task Scheduler, `Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\fyisp"` (the program and its log).
 - **Docker:** `docker rm -f fyisp && docker volume rm fyisp`, then delete `~/.fyisp.env`.
 - **systemd:** `sudo systemctl disable --now fyisp && sudo rm /etc/systemd/system/fyisp.service /usr/local/bin/fyisp && sudo rm -rf /etc/systemd/system/fyisp.service.d /var/lib/private/fyisp /etc/fyisp.env`.
 
