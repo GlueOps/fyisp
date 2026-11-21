@@ -17,6 +17,7 @@ import (
 //	--from T  --to T  --target NAME[,NAME]  --kind https,tcp,icmp,trace
 //	--output FILE (-o)  --speedtests (the speed tests instead of samples)
 //	--storage (the storage tests' attempts instead of samples)
+//	--addrs (each host's probed addresses)  --survey (the path survey)
 //
 // T is RFC 3339 ("2026-09-26T12:00:00Z"), a date ("2026-09-26", UTC
 // midnight), "now", or an age such as "24h", "90m", "7d" (that long ago).
@@ -26,18 +27,28 @@ func Flags(fs *flag.FlagSet) func(now time.Time) (Options, error) {
 	to := fs.String("to", "", "end time, same forms as --from (default: newest data)")
 	var targets, kinds multi
 	fs.Var(&targets, "target", "target name to export (repeatable or comma-separated; default all)")
-	fs.Var(&kinds, "kind", "probe kind: https, tcp, icmp, trace (traceroute hops), udp, udp_jitter, udp_loss (repeatable or comma-separated; default all)")
+	fs.Var(&kinds, "kind", "probe kind: https, tcp, icmp, trace, trace_tcp, trace_udp (traceroute hops), udp, udp_jitter, udp_loss (repeatable or comma-separated; default all)")
 	speed := fs.Bool("speedtests", false, "export the speed tests (CSV: id,start,end,trigger,outcome,server,...) instead of samples")
 	storage := fs.Bool("storage", false, "export the storage tests' attempts (CSV: campaign,round,target,target_name,phase,...) instead of samples")
+	addrs := fs.Bool("addrs", false, "export the address each host's probes used, per period (CSV: host,ip,answers,first_seen,last_seen) instead of samples")
+	survey := fs.Bool("survey", false, "export the path survey (--path-survey), per hour, target, TTL and router (CSV: hour,target,host,port,dest_ip,...) instead of samples")
 	out := fs.String("output", "", "output file, created with mode 0600 (default stdout)")
 	fs.StringVar(out, "o", "", "shorthand for --output")
 	return func(now time.Time) (Options, error) {
-		o := Options{Targets: targets, Output: *out, SpeedTests: *speed, Storage: *storage}
-		if o.SpeedTests && o.Storage {
-			return o, fmt.Errorf("--speedtests and --storage: one at a time")
+		o := Options{Targets: targets, Output: *out, SpeedTests: *speed, Storage: *storage, Addrs: *addrs, Survey: *survey}
+		modes := 0
+		for _, m := range []bool{o.SpeedTests, o.Storage, o.Addrs, o.Survey} {
+			if m {
+				modes++
+			}
 		}
-		if (o.SpeedTests || o.Storage) && (len(targets) > 0 || len(kinds) > 0) {
-			return o, fmt.Errorf("--target and --kind pick samples: --speedtests and --storage take only --from and --to")
+		switch {
+		case modes > 1:
+			return o, fmt.Errorf("--speedtests, --storage, --addrs and --survey: one at a time")
+		case modes == 1 && len(kinds) > 0:
+			return o, fmt.Errorf("--kind picks samples: --speedtests, --storage, --addrs and --survey take only --from and --to (--survey also --target)")
+		case modes == 1 && !o.Survey && len(targets) > 0:
+			return o, fmt.Errorf("--target picks samples or survey targets: --speedtests, --storage and --addrs take only --from and --to")
 		}
 		for _, k := range kinds {
 			pk, err := ParseKind(k)

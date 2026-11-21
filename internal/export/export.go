@@ -61,6 +61,12 @@ type Options struct {
 	// Storage exports the storage tests' attempts made in [From, To] as CSV
 	// (StorageHeader). The reader must also be a StorageReader.
 	Storage bool
+	// Addrs exports the address periods of every host in [From, To]
+	// (AddrHeader), Survey the path survey's hours (SurveyHeader), instead
+	// of samples. The reader must also be a SurveyReader.
+	Addrs, Survey bool
+	// Stderr gets a note when Addrs or Survey finds nothing (nil: none).
+	Stderr io.Writer
 }
 
 // SpeedTestReader reads stored speed tests (*store.SQLite).
@@ -96,6 +102,16 @@ func Write(ctx context.Context, r store.Reader, w io.Writer, o Options) error {
 			return errors.New("export: this store has no storage tests")
 		}
 		return WriteStorage(ctx, sr, w, 0, o.From, o.To)
+	}
+	if o.Addrs || o.Survey {
+		sr, ok := r.(SurveyReader)
+		if !ok {
+			return errors.New("export: this store has no path survey")
+		}
+		if o.Addrs {
+			return WriteAddrs(ctx, sr, w, o.Stderr, o.From, o.To)
+		}
+		return WriteSurvey(ctx, sr, w, o.Stderr, o.Targets, o.From, o.To)
 	}
 	if o.SpeedTests {
 		sr, ok := r.(SpeedTestReader)

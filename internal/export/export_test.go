@@ -252,7 +252,8 @@ func TestFlags(t *testing.T) {
 		}
 	}
 	// Sample filters don't apply to the speed tests or the storage tests.
-	for _, args := range [][]string{{"--storage", "--target", "a"}, {"--speedtests", "--kind", "icmp"}, {"--storage", "--speedtests"}} {
+	for _, args := range [][]string{{"--storage", "--target", "a"}, {"--speedtests", "--kind", "icmp"}, {"--storage", "--speedtests"},
+		{"--addrs", "--survey"}, {"--survey", "--speedtests"}, {"--addrs", "--target", "a"}, {"--survey", "--kind", "tcp"}} {
 		fs = flag.NewFlagSet("export", flag.ContinueOnError)
 		build = Flags(fs)
 		if err := fs.Parse(args); err != nil {

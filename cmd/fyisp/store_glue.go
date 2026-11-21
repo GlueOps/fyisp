@@ -88,6 +88,7 @@ func cmdExport(args []string) int {
 		fmt.Fprintln(os.Stderr, "fyisp export:", err)
 		return 2
 	}
+	o.Stderr = os.Stderr
 	d := *dataDir
 	if d == "" {
 		if d, err = defaultDataDir(); err != nil {
