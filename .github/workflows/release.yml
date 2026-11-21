@@ -83,15 +83,20 @@ jobs:
         run: |
           set -eu
           cat > notes.md <<EOF
-          Run without installing (verifies SHA256SUMS before running):
+          Run without installing (verifies SHA256SUMS before running). \`--tunnel\` (in Docker, \`FYISP_TUNNEL=1\`) adds an HTTPS share link through Cloudflare whose sign-in link gives full control: leave it out to keep the dashboard on your network ([Share link](https://github.com/${GITHUB_REPOSITORY}#share-link)).
 
-              curl --proto '=https' --tlsv1.2 -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/run.sh | sh
+              curl --proto '=https' --tlsv1.2 -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/run.sh | sh -s -- --tunnel
 
           Windows (PowerShell):
 
-              & ([scriptblock]::Create((irm https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/run.ps1)))
+              & ([scriptblock]::Create((irm https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/run.ps1))) --tunnel
 
-          Docker: \`docker run -p 3000:3000 -v fyisp:/data ${IMAGE}:${VERSION}\`
+          Docker on Linux, a NAS or a Raspberry Pi (Docker Desktop, Compose and the share link: [Docker](https://github.com/${GITHUB_REPOSITORY}#docker)):
+
+              [ -s ~/.fyisp.env ] || { t=\$(openssl rand -hex 16) && (umask 077; printf 'FYISP_ADMIN_TOKEN=%s\nFYISP_TUNNEL=1\n' "\$t" > ~/.fyisp.env); }
+              docker rm -f fyisp 2>/dev/null
+              docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data --env-file ~/.fyisp.env ${IMAGE}:${VERSION}
+              echo "Sign in: http://127.0.0.1:3000/#admin=\$(sed -n 's/^FYISP_ADMIN_TOKEN=//p' ~/.fyisp.env)"
 
           Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
           (plus \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`).
