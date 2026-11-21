@@ -79,7 +79,7 @@ import (
 const (
 	shareKeep   = 4           // probes kept per prefix
 	shareMaxAge = time.Minute // prefixes not probed for this long are dropped
-	maxBuckets  = 4096
+	maxBuckets  = 32768
 	burst       = 2 // tokens per router bucket
 )
 
@@ -318,6 +318,21 @@ func (l *limiter) take(k limitKey, now time.Time) ([]limitKey, bool) {
 		l.b[key].tokens--
 	}
 	return keys, true
+}
+
+// takeSpare is take for the path survey: it takes a token only from full
+// buckets, so every router keeps one for the other traces.
+func (l *limiter) takeSpare(k limitKey, now time.Time) ([]limitKey, bool) {
+	if l.rate < 0 {
+		return nil, true
+	}
+	l.mu.Lock()
+	full := l.bucket(k, now).tokens >= burst
+	l.mu.Unlock()
+	if !full {
+		return nil, false
+	}
+	return l.take(k, now)
 }
 
 // answered records that router answered ttl (a time-exceeded or unreachable

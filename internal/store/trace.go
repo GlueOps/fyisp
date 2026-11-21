@@ -46,7 +46,7 @@ const (
 // dropped (counted in Stats.Dropped) and the hop coalescing memory restarts.
 const (
 	maxQueuedChanges = 10000
-	maxHopMarks      = 4096
+	maxHopMarks      = 32768
 )
 
 // HopStat describes one hop (TTL) of a traced target over a time range.

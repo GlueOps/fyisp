@@ -13,7 +13,7 @@ import (
 const (
 	hopWorkers  = 2
 	hopQueue    = 256
-	maxHopCache = 4096
+	maxHopCache = 32768
 )
 
 // hopCache reports every hop address once (and again daily) with its

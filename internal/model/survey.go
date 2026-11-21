@@ -77,12 +77,7 @@ func (h *SurveyHop) add(o SurveyHop) {
 // Merge adds o's rounds (the same target and hour) to s.
 func (s *SurveyHour) Merge(o SurveyHour) {
 	for _, op := range o.Paths {
-		i := slices.IndexFunc(s.Paths, func(p SurveyPath) bool { return p.Dest == op.Dest })
-		if i < 0 {
-			s.Paths = append(s.Paths, SurveyPath{Dest: op.Dest})
-			i = len(s.Paths) - 1
-		}
-		p := &s.Paths[i]
+		p := s.PathTo(op.Dest)
 		p.Rounds += op.Rounds
 		p.Fixed += op.Fixed
 		p.Reached += op.Reached
@@ -106,4 +101,23 @@ func (p *SurveyPath) AddHop(h SurveyHop) {
 
 func compareHop(a, b SurveyHop) int {
 	return cmp.Or(cmp.Compare(a.TTL, b.TTL), cmp.Compare(a.Status, b.Status), a.IP.Compare(b.IP), cmp.Compare(a.ASN, b.ASN))
+}
+
+// PathTo returns s's path to dest, added if new.
+func (s *SurveyHour) PathTo(dest netip.Addr) *SurveyPath {
+	i := slices.IndexFunc(s.Paths, func(p SurveyPath) bool { return p.Dest == dest })
+	if i < 0 {
+		s.Paths = append(s.Paths, SurveyPath{Dest: dest})
+		i = len(s.Paths) - 1
+	}
+	return &s.Paths[i]
+}
+
+// Clone returns a deep copy of s.
+func (s SurveyHour) Clone() SurveyHour {
+	s.Paths = slices.Clone(s.Paths)
+	for i := range s.Paths {
+		s.Paths[i].Hops = slices.Clone(s.Paths[i].Hops)
+	}
+	return s
 }
