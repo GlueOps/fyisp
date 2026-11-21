@@ -45,7 +45,7 @@ func TestClassifyRoute(t *testing.T) {
 }
 
 // TestKeepAddr: --addrs never keeps a LAN address or one in the provider's
-// network.
+// network, and none while the provider is unknown.
 func TestKeepAddr(t *testing.T) {
 	a := netip.MustParseAddr
 	st, err := store.Open(t.TempDir(), store.Options{})
@@ -54,7 +54,10 @@ func TestKeepAddr(t *testing.T) {
 	}
 	defer st.Close()
 	edge := a("1.0.0.1") // the provider's first router: its network is the provider's
-	keep := keepAddr(st, func() netinfo.Path { return netinfo.Path{Edge: edge} })
+	var path netinfo.Path
+	keep := keepAddr(st, func() netinfo.Path { return path })
+	keep("early.example", a("8.8.4.4"), 1) // the provider not found yet
+	path.Edge = edge
 	keep("nas.lan", a("192.168.1.20"), 1)
 	keep("home.example", a("1.1.1.1"), 1) // same network as the edge
 	keep("dns.google", a("8.8.8.8"), 2)

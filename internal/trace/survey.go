@@ -208,8 +208,10 @@ func (tr *tracer) runSurvey(ctx context.Context, sv *Survey, ts []model.Target) 
 	next := slot(tr.o.Now())
 	i := int(next.UnixNano()/int64(step)) % len(targets)
 	for {
-		if now := tr.o.Now(); next.Sub(now) > step+time.Minute {
-			next = slot(now) // the clock was stepped back
+		// The clock was stepped back, or jumped forward (a suspend): carry
+		// on from now rather than wait or run the missed rounds back to back.
+		if now := tr.o.Now(); next.Sub(now) > step+time.Minute || now.Sub(next) > time.Minute {
+			next = slot(now)
 		}
 		if !sleepUntil(ctx, tr.o.Now, next) {
 			return

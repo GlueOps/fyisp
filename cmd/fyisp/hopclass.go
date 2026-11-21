@@ -68,15 +68,16 @@ func surveyClassify(path func() netinfo.Path) func([]netip.Addr) []model.SurveyC
 
 // keepAddr is the probe runner's OnResolve with --path-survey: it keeps
 // the address each host's probes use (`fyisp export --addrs`), except
-// one on this network (a --config target on the LAN) or in this
-// connection's provider's network (it could be the user's own, a server at
-// home reached by its DDNS name).
+// one on this network (a --config target on the LAN, this machine's own)
+// or in this connection's provider's network (it could be the user's own,
+// a server at home reached by its DDNS name). Like classifyRoute, it keeps
+// none while the provider is unknown.
 func keepAddr(st *store.SQLite, path func() netinfo.Path) func(host string, ip netip.Addr, answers int) {
 	return func(host string, ip netip.Addr, answers int) {
-		if !netinfo.IsPublic(ip) {
+		if !netinfo.IsPublic(ip) || storage.IsSelf(ip) {
 			return
 		}
-		if isp := ispASN(path); isp != 0 && asn.Lookup(ip).ASN == isp {
+		if isp := ispASN(path); isp == 0 || asn.Lookup(ip).ASN == isp {
 			return
 		}
 		st.ObserveAddr(host, ip, answers)
