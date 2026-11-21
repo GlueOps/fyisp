@@ -104,6 +104,22 @@ func TestExportSurvey(t *testing.T) {
 		t.Errorf("stderr %q", e.String())
 	}
 
+	// No --from or --to: everything stored.
+	b.Reset()
+	if err := Write(context.Background(), s, &b, Options{Survey: true, Stderr: &e}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(csvRows(t, &b)); n != 6 {
+		t.Errorf("without a range: %d rows, want 6", n)
+	}
+	b.Reset()
+	if err := Write(context.Background(), s, &b, Options{Addrs: true, Stderr: &e}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(csvRows(t, &b)); n != 3 || e.Len() != 0 {
+		t.Errorf("--addrs without a range: %d rows, stderr %q", n, e.String())
+	}
+
 	b.Reset()
 	if err := Write(context.Background(), s, &b, Options{Survey: true, From: t0.Add(48 * time.Hour), To: t0.Add(49 * time.Hour), Stderr: &e}); err != nil {
 		t.Fatal(err)

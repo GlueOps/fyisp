@@ -108,10 +108,18 @@ func Write(ctx context.Context, r store.Reader, w io.Writer, o Options) error {
 		if !ok {
 			return errors.New("export: this store has no path survey")
 		}
-		if o.Addrs {
-			return WriteAddrs(ctx, sr, w, o.Stderr, o.From, o.To)
+		// No --from or --to: everything stored.
+		from, to := o.From, o.To
+		if from.IsZero() {
+			from = time.Unix(0, 0)
 		}
-		return WriteSurvey(ctx, sr, w, o.Stderr, o.Targets, o.From, o.To)
+		if to.IsZero() {
+			to = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		if o.Addrs {
+			return WriteAddrs(ctx, sr, w, o.Stderr, from, to)
+		}
+		return WriteSurvey(ctx, sr, w, o.Stderr, o.Targets, from, to)
 	}
 	if o.SpeedTests {
 		sr, ok := r.(SpeedTestReader)
