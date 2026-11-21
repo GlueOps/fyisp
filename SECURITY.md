@@ -113,7 +113,8 @@ built-in table knows (it could be your public address). That last rule is
 best effort: a provider that gives you an address from another of its
 networks isn't recognised.
 
-With `--tunnel` (off by default) fyisp runs Cloudflare's tunnel code
+With `--tunnel` (off by default in fyisp, on in the README's Quick start
+commands) fyisp runs Cloudflare's tunnel code
 (cloudflared, linked in) to publish the dashboard at a random
 `https://<name>.trycloudflare.com` address. It asks `api.trycloudflare.com`
 for a tunnel (through `HTTPS_PROXY` when that is set), looks up Cloudflare's edge servers in DNS
