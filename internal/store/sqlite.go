@@ -167,7 +167,33 @@ CREATE TABLE speedtests(
 	handoff_ms      INT
 );
 CREATE INDEX speedtests_start ON speedtests(start_ms);
-` + storageDDL
+` + storageDDL + surveyDDL
+
+// surveyDDL is the path survey's tables (schema v10), for comparing sites:
+// the address each host's probes used, and the hourly survey of every
+// target's TCP path. Neither holds the public address or an address of
+// the user's own network or provider (see trace.Mask).
+const surveyDDL = `
+-- One row per period a host's probes used one address: answers is how
+-- many addresses DNS returned at the last lookup, last_ms that lookup.
+CREATE TABLE target_addrs(
+	host     TEXT NOT NULL,
+	ip       TEXT NOT NULL,
+	answers  INT  NOT NULL,
+	first_ms INT  NOT NULL,
+	last_ms  INT  NOT NULL,
+	PRIMARY KEY(host, ip, first_ms)
+) WITHOUT ROWID;
+CREATE INDEX target_addrs_last ON target_addrs(last_ms);
+-- A target's path survey over one hour (unix seconds / 3600); data is
+-- zstd-compressed JSON (see survey.go).
+CREATE TABLE survey_hops(
+	hour   INTEGER NOT NULL,
+	target TEXT    NOT NULL,
+	data   BLOB    NOT NULL,
+	PRIMARY KEY(hour, target)
+);
+`
 
 // storageDDL is the storage tests' tables (schema v9). They never hold an
 // endpoint's host, a bucket, a CA, a key, the install id (meta has it), the
@@ -279,7 +305,7 @@ CREATE INDEX storage_traces_campaign ON storage_traces(campaign);
 func SchemaVersion() int { return schemaVersion }
 
 // schemaVersion is SchemaVersion (a variable for the migration tests).
-var schemaVersion = 9
+var schemaVersion = 10
 
 // oldestUpgradable is the oldest schema upgraded in place: fyisp v0.11.0's.
 // A file with an older schema is replaced with a new empty one.
@@ -295,6 +321,7 @@ type migration struct {
 // one step per version, oldest first.
 var migrations = []migration{
 	{from: 8, up: execDDL(storageDDL)}, // storage tests
+	{from: 9, up: execDDL(surveyDDL)},  // path survey
 }
 
 // execDDL is a step that runs additive DDL.
@@ -509,7 +536,7 @@ func classify(ctx context.Context, path string) (dbState, int, error) {
 
 // tables are the schema's tables, which a current file must all have.
 var tables = []string{"series", "samples", "summary_1h", "meta", "incidents", "hop_info", "route_changes", "routes", "speedtests",
-	"storage_campaigns", "storage_rounds", "storage_attempts", "storage_traces"}
+	"storage_campaigns", "storage_rounds", "storage_attempts", "storage_traces", "target_addrs", "survey_hops"}
 
 // inspect reads the schema version and the table names of the database at
 // path over a read-only connection (mode=ro): it writes nothing, and its
