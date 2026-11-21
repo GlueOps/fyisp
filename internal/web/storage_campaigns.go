@@ -30,6 +30,7 @@ type StorageReader interface {
 	StorageCells(ctx context.Context, campaign int64) ([]store.StorageCellRow, error)
 	StorageTraces(ctx context.Context, campaign int64) ([]model.StorageTrace, error)
 	StorageTimings(ctx context.Context, campaign int64) ([]store.StorageTiming, error)
+	StorageRoundTimings(ctx context.Context, campaign int64) ([]store.StorageRoundTiming, error)
 }
 
 // Limits of the campaign reads.
@@ -186,7 +187,7 @@ func (s *server) serveStoragePart(w http.ResponseWriter, r *http.Request, part s
 		allowed = []string{"part"}
 	case "campaigns":
 		allowed = []string{"part", "before", "limit"}
-	case "campaign", "round":
+	case "campaign", "round", "timings":
 		allowed = []string{"part", "id"}
 	case "attempts":
 		allowed = []string{"part", "campaign", "target", "class", "phase", "failed", "before", "limit"}
@@ -241,6 +242,13 @@ func (s *server) serveStoragePart(w http.ResponseWriter, r *http.Request, part s
 			return
 		}
 		s.serveCampaign(w, r, id)
+	case "timings":
+		id, err := reqInt(q, "id")
+		if err != nil {
+			writeErr(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.serveTimings(w, r, id)
 	case "round":
 		id, err := reqInt(q, "id")
 		if err != nil {
@@ -400,6 +408,65 @@ type storageSeriesJSON struct {
 	At      []int64    `json:"at"`
 	DownBps []*float64 `json:"down_bps"`
 	UpBps   []*float64 `json:"up_bps"`
+}
+
+// storageTimingsJSON is one target's fresh connections over a campaign:
+// a point per round in which one worked, at the round's start (as
+// storageSeriesJSON's), each step's median in ms.
+type storageTimingsJSON struct {
+	At      []int64    `json:"at"`
+	N       []int      `json:"n"`
+	DNS     []*float64 `json:"dns_ms"`
+	Connect []*float64 `json:"connect_ms"`
+	TLS     []*float64 `json:"tls_ms"`
+	TTFB    []*float64 `json:"ttfb_ms"`
+}
+
+// serveTimings answers part=timings: every round's median timings of each
+// target's fresh connections that worked.
+func (s *server) serveTimings(w http.ResponseWriter, r *http.Request, id int64) {
+	ctx := r.Context()
+	c, ok, err := s.d.StorageData.StorageCampaign(ctx, id)
+	if err != nil {
+		s.storeFailed(w, r, err)
+		return
+	}
+	if !ok {
+		notFound(w, r)
+		return
+	}
+	rounds, err := s.d.StorageData.StorageRounds(ctx, id, time.Time{})
+	if err != nil {
+		s.storeFailed(w, r, err)
+		return
+	}
+	rows, err := s.d.StorageData.StorageRoundTimings(ctx, id)
+	if err != nil {
+		s.storeFailed(w, r, err)
+		return
+	}
+	at := make(map[int64]int64, len(rounds))
+	for _, rr := range rounds {
+		t := rr.Start
+		if t.IsZero() {
+			t = rr.Due
+		}
+		at[rr.ID] = t.UnixMilli()
+	}
+	out := map[string]*storageTimingsJSON{}
+	for _, t := range c.Targets {
+		out[t.ID] = &storageTimingsJSON{At: []int64{}, N: []int{}, DNS: []*float64{}, Connect: []*float64{}, TLS: []*float64{}, TTFB: []*float64{}}
+	}
+	for _, row := range rows {
+		o, t := out[row.Target], at[row.Round]
+		if o == nil || t == 0 {
+			continue // a target the campaign no longer lists, or a round pruned since
+		}
+		o.At, o.N = append(o.At, t), append(o.N, row.N)
+		o.DNS, o.Connect = append(o.DNS, roundP(row.DNS, 10)), append(o.Connect, roundP(row.Connect, 10))
+		o.TLS, o.TTFB = append(o.TLS, roundP(row.TLS, 10)), append(o.TTFB, roundP(row.TTFB, 10))
+	}
+	writeJSON(w, r, http.StatusOK, map[string]any{"at": s.now().UnixMilli(), "campaign": id, "timings": out})
 }
 
 // serveCampaign answers part=campaign: the campaign, its rounds (runs,

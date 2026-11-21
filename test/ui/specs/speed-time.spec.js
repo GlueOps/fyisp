@@ -2,7 +2,7 @@
 // that zooms, the picker (every test together, or up to 8 regions and
 // servers), the tooltip, failures and lower bounds. Its own fyisp-webdev
 // with a week of speed tests (the shared one has two days), so the tests
-// run one after another. Screenshot: out/shots/speed-time.png.
+// run one after another. Screenshots: out/shots/speed-time*.png.
 // @ts-check
 const { test, expect, webdev } = require('./fixtures');
 const AxeBuilder = require('@axe-core/playwright').default;
@@ -10,6 +10,8 @@ const { setTheme, WIDTHS, THEMES } = require('./home');
 
 const PORT = 3231;
 const series = (/** @type {import('@playwright/test').Request} */ r) => /api\/speed\?.*part=series/.test(r.url());
+const testsReq = (/** @type {import('@playwright/test').Request} */ r) => /api\/speed\?.*part=tests/.test(r.url());
+const esc = (/** @type {string} */ s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const param = (/** @type {import('@playwright/test').Request} */ r, /** @type {string} */ k) => new URL(r.url()).searchParams.get(k);
 
 test.describe.configure({ mode: 'serial' });
@@ -116,12 +118,15 @@ test('speed over time: pick regions and servers, up to 8', async ({ page }) => {
   await expect(boxes.nth(11)).toBeDisabled();
   for (let i = 4; i < 10; i++) await boxes.nth(i).uncheck();
 
+  let perTest = 0;
+  page.on('request', (q) => { if (testsReq(q)) perTest++; });
   const [r] = await Promise.all([page.waitForRequest(series), dlg.getByRole('button', { name: 'Show' }).click()]);
   expect(param(r, 'targets')).toBe('uk,Clouvider-London');
   await expect(page.getByRole('heading', { name: 'Speed over time: 2 targets' })).toBeVisible();
   const keys = page.locator('.spt-legend button.spt-key');
   await expect(keys).toHaveText(['UK', 'Clouvider London']);
   await expect(page.locator('.spt-corner')).toHaveText(/^2 targets · \d+ h per point$/);
+  expect(perTest, 'several targets: lines, never each test').toBe(0);
 
   // A legend entry shows that line alone, and hands the focus to the picker's button.
   const [alone] = await Promise.all([page.waitForRequest(series), keys.nth(1).click()]);
@@ -139,6 +144,8 @@ test('speed over time: pick regions and servers, up to 8', async ({ page }) => {
   await together.check();
   const [all] = await Promise.all([page.waitForRequest(series), dlg.getByRole('button', { name: 'Show' }).click()]);
   expect(param(all, 'targets')).toBeNull();
+  // Back to one line of every test: its points are gone.
+  await expect(page.locator('.spt-corner')).toHaveText(/^\d+ h per point · about \d+ tests each$/);
 });
 
 // The refused read logs a console error, which is the point.
@@ -243,4 +250,117 @@ test('speed over time: opened from another view; axe, both themes, a phone', asy
   }
   await page.getByRole('button', { name: /^Tests to:/ }).click();
   expect(await axe('dialog.dlg')).toEqual([]);
+});
+
+test('speed over time: one target shows every test as its own point', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: /^Tests to: All regions/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Tests to show' });
+  await dlg.getByRole('checkbox', { name: 'Clouvider London' }).check();
+  const tests = page.waitForRequest(testsReq);
+  await dlg.getByRole('button', { name: 'Show' }).click();
+  const rt = await tests;
+  expect(param(rt, 'row')).toBe('Clouvider-London');
+  expect(Number(param(rt, 'to')) - Number(param(rt, 'from'))).toBe(7 * 86400e3);
+  await expect(page.locator('.spt-corner')).toHaveText(/^each point is one test · \d+ tests$/);
+  await expect(page.locator('.spt-chart')).toHaveAttribute('aria-label', /Clouvider London: download usually about .+ \d+ tests, one point each\.$/);
+  await expect(page.locator('.spt-legend')).toContainText('●Clouvider London');
+  await expect(page.locator('.spt-cap')).toContainText('Every test to this target');
+
+  // The selected row of the page has a button for the same.
+  const rowName = await page.locator('#sp-row-h').innerText();
+  await expect(page.locator('.sp-row').getByRole('heading', { name: /by hour of day/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Over the last/ })).toHaveCount(0);
+  const again = page.waitForRequest(testsReq);
+  await page.locator('.sp-row').getByRole('button', { name: 'Show over time' }).click();
+  await again;
+  await expect(page.getByRole('heading', { name: `Speed over time: ${rowName}` })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(`^Tests to: ${esc(rowName)}`) })).toBeFocused();
+  await expect(page.locator('.spt')).toBeInViewport();
+});
+
+test('speed over time: a test’s point says what it was', async ({ page }) => {
+  const span = 8 * 3600e3, t0 = Date.now() - span;
+  await page.route(/api\/speed\?.*part=series/, (route) => route.fulfill(answer([{ id: 'uk', kind: 'region', label: 'UK', usual: 6,
+    down_bps: [9e8, 9e8, 9e8, 9e8], up_bps: [4e7, 4e7, 4e7, 4e7], n: [1, 1, 1, 1], up_n: [1, 1, 1, 1], failed: [0, 0, 1, 0], down_lb: zeros, up_lb: zeros }])));
+  const at = (/** @type {number} */ f) => t0 + f * span;
+  await page.route(/api\/speed\?.*part=tests/, (route) => route.fulfill({ json: {
+    at: Date.now(), from: t0, to: t0 + span, id: 'uk', kind: 'region', label: 'UK', capped: false, complete_from: t0,
+    servers: { 'Leaseweb-London': { label: 'Leaseweb London', provider: 'Leaseweb' }, 'Clouvider-London': { label: 'Clouvider London', provider: 'Clouvider' } },
+    // Leaseweb first among the tests; the UK region lists Clouvider first, so Clouvider keeps ● as in the row's chart.
+    tests: [
+      { id: 1, start: at(0.2), outcome: 'ok', server: 'Leaseweb-London', down_bps: 8e8, up_bps: 4e7 },
+      { id: 2, start: at(0.4), outcome: 'ok', server: 'Clouvider-London', down_bps: 2e8, up_bps: 2e7, down_lb: true, fallback: true },
+      { id: 3, start: at(0.6), outcome: 'busy', server: 'Leaseweb-London', down_bps: null, up_bps: null },
+      { id: 4, start: at(0.8), outcome: 'ok', server: 'Leaseweb-London', down_bps: 5e8, up_bps: null, on_demand: true, capped_by_server: true },
+    ] } }));
+  await open(page);
+  // The tests' fastest (800 Mbit/s) and down_max (940) put the axis top at 1000 (niceCeil of 940 × 1.03): the hovers below count on it.
+  await expect(page.locator('.spt-corner')).toHaveText('each point is one test · 4 tests');
+  const legend = page.locator('.spt-legend');
+  await expect(legend).toContainText('●Clouvider London▲Leaseweb London');
+  await expect(legend).toContainText('hollow: a backup server ran it');
+  await expect(legend).toContainText('↑at least');
+  await expect(legend).toContainText('ringed: you asked for it');
+  const box = await plot(page);
+  const tip = page.locator('#tip');
+  // The axis tops at 1000 Mbit/s (the fastest test, rounded up); a test with no result sits on the baseline.
+  const hover = (/** @type {number} */ f, /** @type {number|null} */ mbps) => page.mouse.move(box.x + box.width * f, mbps == null ? box.y + box.height - 5 : box.y + box.height * (1 - mbps / 1000));
+  await hover(0.2, 800);
+  await expect(tip).toContainText('Leaseweb London');
+  await expect(tip).toContainText('800 Mbit/s down · 40 Mbit/s up');
+  await hover(0.4, 200);
+  await expect(tip).toContainText('Clouvider London (a backup server)');
+  await expect(tip).toContainText('at least 200 Mbit/s down');
+  await hover(0.6, null);
+  await expect(tip).toContainText('server busy');
+  await hover(0.8, 500);
+  await expect(tip).toContainText('you asked for it, as fast as the server goes');
+  await expect(tip).toContainText('500 Mbit/s down · the upload didn’t finish');
+  await page.locator('.spt').screenshot({ path: 'out/shots/speed-time-tests.png' });
+});
+
+test('speed over time: a target with too many tests is a line until a zoom brings each test', async ({ page }) => {
+  const span = 30 * 86400e3, now = Date.now();
+  /** n tests in each of 4 points of the window asked for. @param {URL} u @param {number} n */
+  const lines = (u, n) => {
+    const to = Number(u.searchParams.get('to')) || now, from = /^\d+$/.test(u.searchParams.get('from') || '') ? Number(u.searchParams.get('from')) : to - span;
+    const step = (to - from) / 4;
+    return { json: { at: now, from, to, step, t: [0, 1, 2, 3].map((i) => from + i * step), end: to, down_max: 9e8, up_max: 4e7,
+      series: [{ id: 'uk', kind: 'region', label: 'UK', usual: n, down_bps: [9e8, 9e8, 9e8, 9e8], up_bps: [4e7, 4e7, 4e7, 4e7],
+        n: [n, n, n, n], up_n: [n, n, n, n], failed: zeros, down_lb: zeros, up_lb: zeros }] } };
+  };
+  await page.route(/api\/speed\?.*part=series/, (route) => {
+    const u = new URL(route.request().url());
+    // The whole month: 3000 tests; a zoomed window: 40.
+    route.fulfill(lines(u, /^\d+$/.test(u.searchParams.get('from') || '') ? 10 : 750));
+  });
+  await page.route(/api\/speed\?.*part=tests/, (route) => {
+    const u = new URL(route.request().url()), from = Number(u.searchParams.get('from')), to = Number(u.searchParams.get('to'));
+    route.fulfill({ json: { at: now, from, to, id: 'uk', kind: 'region', label: 'UK', capped: true, complete_from: from + 1,
+      servers: { A: { label: 'Clouvider London', provider: 'Clouvider' } },
+      tests: [1, 2, 3].map((i) => ({ id: i, start: from + i * (to - from) / 4, outcome: 'ok', server: 'A', down_bps: 9e8, up_bps: 4e7 })) } });
+  });
+  let perTest = 0;
+  page.on('request', (q) => { if (testsReq(q)) perTest++; });
+  await open(page);
+  await page.getByRole('button', { name: /^Tests to: All regions/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Tests to show' });
+  await dlg.getByRole('checkbox', { name: 'UK: every server' }).check();
+  await dlg.getByRole('button', { name: 'Show' }).click();
+  await expect(page.locator('.spt-corner')).toHaveText(/ · zoom in to see each test$/);
+  expect(perTest).toBe(0);
+
+  const box = await plot(page);
+  const zoomed = page.waitForRequest(testsReq);
+  await page.mouse.move(box.x + box.width * 0.3, box.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + 40, { steps: 5 });
+  await page.mouse.up();
+  const rt = await zoomed;
+  expect(param(rt, 'row')).toBe('uk');
+  expect(Number(param(rt, 'to')) - Number(param(rt, 'from'))).toBeLessThan(span / 2);
+  // A capped answer says it holds the newest tests only.
+  await expect(page.locator('.spt-corner')).toHaveText('each point is one test · the newest 3 tests');
+  expect(perTest).toBe(1);
 });

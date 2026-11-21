@@ -362,6 +362,13 @@ func TestStorageCampaignAPI(t *testing.T) {
 	if tp := c["throughput"].(map[string]any)[id].(map[string]any); len(tp["down_bps"].([]any)) != 1 || tp["down_bps"].([]any)[0] == nil {
 		t.Errorf("throughput %v", tp)
 	}
+	// Every round's median timings of the fresh connections that worked, at the round's start.
+	tm := l.get(t, fmt.Sprintf("/api/storage?part=timings&id=%d", camp))
+	tt := tm["timings"].(map[string]any)[id].(map[string]any)
+	if tm["campaign"] != float64(camp) || len(tt["at"].([]any)) != 1 || tt["at"].([]any)[0] != rounds[0].(map[string]any)["start"] ||
+		tt["n"].([]any)[0] != float64(storage.DefaultCold) || tt["ttfb_ms"].([]any)[0] == nil || tt["connect_ms"].([]any)[0] == nil {
+		t.Errorf("timings %v", tm)
+	}
 	rid := int64(rounds[0].(map[string]any)["id"].(float64))
 	rd := l.get(t, fmt.Sprintf("/api/storage?part=round&id=%d", rid))
 	var phases []string
@@ -375,7 +382,7 @@ func TestStorageCampaignAPI(t *testing.T) {
 	if at["total"] != float64(storage.DefaultCold) || len(at["items"].([]any)) != 2 || at["next_before"] == nil {
 		t.Errorf("attempts %v", at)
 	}
-	for _, p := range []string{"/api/storage", fmt.Sprintf("/api/storage?part=campaign&id=%d", camp), fmt.Sprintf("/api/storage?part=round&id=%d", rid),
+	for _, p := range []string{"/api/storage", fmt.Sprintf("/api/storage?part=campaign&id=%d", camp), fmt.Sprintf("/api/storage?part=round&id=%d", rid), fmt.Sprintf("/api/storage?part=timings&id=%d", camp),
 		fmt.Sprintf("/api/storage?part=attempts&campaign=%d", camp), "/api/storage?part=campaigns", "/api/storage?part=live"} {
 		if b := do(l.h, "GET", p, goodHdr).Body.String(); strings.Contains(b, l.srv.Secret) || strings.Contains(b, l.srv.AccessKey) {
 			t.Errorf("%s serves the keys: %s", p, b)
@@ -389,6 +396,10 @@ func TestStorageCampaignAPI(t *testing.T) {
 		t.Fatalf("start = %d %s", code, raw)
 	}
 	rec := int64(out["campaign"].(map[string]any)["id"].(float64))
+	// A target with no round yet: empty lists, never null (the chart reads them as arrays).
+	if b := do(l.h, "GET", fmt.Sprintf("/api/storage?part=timings&id=%d", rec), goodHdr).Body.String(); !strings.Contains(b, `"`+id+`":{"at":[],"n":[],"dns_ms":[],"connect_ms":[],"tls_ms":[],"ttfb_ms":[]}`) {
+		t.Errorf("timings of a campaign without rounds: %s", b)
+	}
 	if sc := out["campaign"].(map[string]any)["schedule"].(map[string]any); sc["from"] != "00:00" || len(sc["days"].([]any)) != 7 || sc["keys_saved"] != true {
 		t.Errorf("schedule %v", sc)
 	}
@@ -440,13 +451,15 @@ func TestStorageCampaignAPI(t *testing.T) {
 		t.Errorf("estimate %v", est)
 	}
 	for _, p := range []string{"/api/storage?part=nope", "/api/storage?part=campaign", "/api/storage?part=campaign&id=x", "/api/storage?part=attempts&campaign=1&class=a%20b",
-		"/api/storage?part=estimate&targets=" + id + "&shape=on_demand&cold=99", "/api/storage?part=round&id=1&x=1"} {
+		"/api/storage?part=estimate&targets=" + id + "&shape=on_demand&cold=99", "/api/storage?part=round&id=1&x=1", "/api/storage?part=timings", "/api/storage?part=timings&id=1&target=x"} {
 		if w := do(l.h, "GET", p, goodHdr); w.Code != 400 {
 			t.Errorf("GET %s = %d", p, w.Code)
 		}
 	}
-	if w := do(l.h, "GET", "/api/storage?part=campaign&id=999", goodHdr); w.Code != 404 {
-		t.Errorf("unknown campaign = %d", w.Code)
+	for _, p := range []string{"/api/storage?part=campaign&id=999", "/api/storage?part=timings&id=999"} {
+		if w := do(l.h, "GET", p, goodHdr); w.Code != 404 {
+			t.Errorf("GET %s = %d", p, w.Code)
+		}
 	}
 }
 

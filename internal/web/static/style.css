@@ -1376,3 +1376,8 @@ button.spt-key:hover, button.spt-key:focus-visible { border-color: var(--border)
 .spt-corner { margin: 4px 0 0; text-align: right; }
 .spt-cap { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); max-width: 82ch; }
 .sp-pick-row.spt-sub { padding-left: 22px; }
+
+/* Each round over time (storagetime.js): the speed chart's pieces (.spt-*), under a campaign's finding. */
+.st-time { margin: 14px 0; }
+.st-time h3 { margin: 0; }
+.spt-hint { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }

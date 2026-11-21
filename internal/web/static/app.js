@@ -149,6 +149,7 @@ function themeChanged() {
   calls?.render();
   home?.themeChanged();
   speed?.themeChanged();
+  storage?.themeChanged();
 }
 
 // ---------- colours ----------

@@ -1,7 +1,7 @@
 // Details → Speed, the evidence: "What we found", speed by hour of day (a
 // heatmap of regions or servers, each cell the row's median as a share of
-// its own normal), the selected row's tests by hour and over the days, its
-// providers side by side, delay under load and the tests themselves. Every
+// its own normal), the selected row's tests by hour of day (and a button that
+// shows it in "Speed over time"), its providers side by side, delay under load and the tests themselves. Every
 // colour has a word and a shape: five lightness bins, a hatch on the worst,
 // an outline for "no tests yet" and a dot for "filling in". Plain ES module,
 // no build step.
@@ -50,8 +50,8 @@ const BINS = /** @type {[number, string, string][]} */ ([
 function bin(/** @type {number} */ v) { return /** @type {[number, string, string]} */ (BINS.find(([min]) => v >= min)); }
 
 /** Shapes by provider, in order of first appearance: never colour alone. */
-const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
-const SHAPE_CHAR = { circle: '●', triangle: '▲', square: '■', diamond: '◆', pentagon: '⬟' };
+export const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
+export const SHAPE_CHAR = { circle: '●', triangle: '▲', square: '■', diamond: '◆', pentagon: '⬟' };
 
 const H12 = /[ap]/i.test(new Date(2000, 0, 1, 13).toLocaleTimeString([], { hour: 'numeric' }).replace(/\d/g, ''));
 /** "9 PM" or "21:00", the viewer's way. */
@@ -146,9 +146,13 @@ function handoffWords(ho) {
 }
 
 export class SpeedMap {
-  /** @param {SpeedHost} host @param {HTMLElement} over the section between the finding and the heatmap (speed over time) */
-  constructor(host, over) {
+  /**
+   * @param {SpeedHost} host @param {HTMLElement} over the section between the finding and the heatmap (speed over time)
+   * @param {(id:string)=>void} showOverTime shows a row in that section
+   */
+  constructor(host, over, showOverTime) {
     this.host = host;
+    this.showOverTime = showOverTime;
     /** @type {SpeedSummary|null} */
     this.d = null;
     /** @type {'regions'|'servers'} */
@@ -451,7 +455,7 @@ export class SpeedMap {
     const pts = v.tests.filter((t) => val(t) != null).map((t) => {
       const dt = new Date(t.start);
       const lk = look.get(t.server) || { shape: 'circle', color: '#888' };
-      return { t, hx: dt.getHours() + dt.getMinutes() / 60, y: /** @type {number} */ (val(t)), ...lk };
+      return { t, x: dt.getHours() + dt.getMinutes() / 60, y: /** @type {number} */ (val(t)), ...lk };
     });
     const line = this.unit === 'pct'
       ? r.hours.map((x) => { const v = this.dir === 'up' ? x.up_score_median : x.score_median; return v != null ? { x: x.hour + 0.5, y: v } : null; })
@@ -467,13 +471,7 @@ export class SpeedMap {
     const dipHours = r.dip?.hours || dipHoursOf(d);
     const byHour = scatter({
       x: [0, 24], ticks: [0, 3, 6, 9, 12, 15, 18, 21, 24].map((x) => ({ v: x, label: x === 24 ? '' : hourShort(x) })),
-      shade: dipHours.map((x) => [x, x + 1]), points: pts.map((p) => ({ ...p, x: p.hx })), line, fmtY, tip: tipFor, pctAxis: this.unit === 'pct',
-    });
-    const t0 = d.at - d.days * 86400e3;
-    const dayTicks = [];
-    for (let i = 0; i <= d.days; i += d.days > 7 ? 5 : 1) { const at = new Date(t0 + i * 86400e3); at.setHours(0, 0, 0, 0); dayTicks.push({ v: at.getTime(), label: at.toLocaleDateString([], d.days > 7 ? { month: 'short', day: 'numeric' } : { weekday: 'short' }) }); }
-    const overDays = scatter({
-      x: [t0, d.at], ticks: dayTicks, shade: [], points: pts.map((p) => ({ ...p, x: p.t.start })), line: [], fmtY, tip: tipFor, pctAxis: this.unit === 'pct', short: true,
+      shade: dipHours.map((x) => [x, x + 1]), points: pts, line, fmtY, tip: tipFor, pctAxis: this.unit === 'pct',
     });
     const legend = h('ul', { class: 'sp-shapes' }, ...ids.filter((id) => v.tests.some((t) => t.server === id)).map((id) => {
       const lk = /** @type {{shape:string,color:string}} */ (look.get(id));
@@ -481,14 +479,13 @@ export class SpeedMap {
       sw.style.color = lk.color;
       return h('li', {}, sw, servers.get(id)?.label || id, chain[0] === id && isRegion ? h('span', { class: 'muted', text: ' (first choice)' }) : '');
     }), v.tests.some((t) => t.fallback) ? h('li', { class: 'muted' }, h('span', { class: 'sp-shape', 'aria-hidden': 'true', text: '○' }), 'hollow: a backup server ran it') : '');
-    const okN = v.tests.filter((t) => t.outcome === 'ok').length;
     const summary = this.chartSummary(r, dipHours);
     byHour.setAttribute('aria-label', summary);
-    overDays.setAttribute('aria-label', `${r.label}, ${okN} tests over ${d.days} days, one point per test.`);
     this.rowEl.replaceChildren(
       h('div', { class: 'sp-sec-head' },
         h('h2', { id: 'sp-row-h', text: r.label }),
-        h('span', { class: 'muted small', text: isRegion ? chain.map((id) => servers.get(id)?.label || id).join(' · ') : (servers.get(r.id)?.display || '') })),
+        h('span', { class: 'muted small', text: isRegion ? chain.map((id) => servers.get(id)?.label || id).join(' · ') : (servers.get(r.id)?.display || '') }),
+        h('button', { class: 'btn sm', type: 'button', text: 'Show over time', onclick: () => this.showOverTime(r.id) })),
       r.why ? h('p', { class: 'muted small', text: `Tested because: ${r.why}` }) : '',
       /** @type {any} */ (r).too_fast ? h('p', { class: 'sp-note' }, h('b', { text: `${TOO_FAST}. ` }), tooFastWhy(r, isRegion)) : '',
       r.note ? h('p', { class: 'notice warn', text: r.note }) : '',
@@ -496,8 +493,6 @@ export class SpeedMap {
       h('div', { class: 'sp-chart' }, byHour),
       legend,
       h('p', { class: 'muted small', text: 'One mark per test; the line is each hour’s median.' + (dipHours.length ? ` Shaded: ${hourRange(dipHours)}.` : '') }),
-      h('h3', { text: `Over the last ${d.days} days` }),
-      h('div', { class: 'sp-chart short' }, overDays),
       isRegion ? this.compareNodes(v, servers, look, dipHours) : '',
       this.loadNodes(),
       this.testNodes(v, servers));
@@ -725,17 +720,16 @@ function fallbackWhy(d, t) {
 }
 
 /**
- * A scatter chart on a canvas: x in hours of day or ms, y as a share (%) or
+ * A scatter chart on a canvas: x in hours of day, y as a share (%) or
  * Mbit/s, marks shaped by server (hollow: a backup server), an optional median
  * line and shaded hours. Hover shows the nearest test. role=img; the caller sets
  * its aria-label.
- * @param {{x:[number,number], ticks:{v:number,label:string}[], shade:number[][], points:{x:number,y:number,shape:string,color:string,t:SpeedTest}[], line:({x:number,y:number}|null)[], fmtY:(y:number)=>string, tip:(p:any)=>Node[], pctAxis:boolean, short?:boolean}} o
+ * @param {{x:[number,number], ticks:{v:number,label:string}[], shade:number[][], points:{x:number,y:number,shape:string,color:string,t:SpeedTest}[], line:({x:number,y:number}|null)[], fmtY:(y:number)=>string, tip:(p:any)=>Node[], pctAxis:boolean}} o
  */
 function scatter(o) {
   const cv = /** @type {HTMLCanvasElement} */ (h('canvas', { role: 'img' }));
   const draw = () => {
-    const w = cv.parentElement ? cv.parentElement.clientWidth : 600;
-    const ht = o.short ? 150 : 220;
+    const w = cv.parentElement ? cv.parentElement.clientWidth : 600, ht = 220;
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(w * dpr); cv.height = Math.round(ht * dpr);
     cv.style.width = `${w}px`; cv.style.height = `${ht}px`;
@@ -788,7 +782,7 @@ function niceTicks(/** @type {number} */ max) {
   return out;
 }
 /** @param {CanvasRenderingContext2D} g @param {string} shape @param {number} x @param {number} y @param {string} c @param {boolean} hollow */
-function mark(g, shape, x, y, c, hollow) {
+export function mark(g, shape, x, y, c, hollow) {
   const r = 3.5;
   g.beginPath();
   if (shape === 'circle') g.arc(x, y, r, 0, Math.PI * 2);

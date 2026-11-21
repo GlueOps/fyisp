@@ -425,21 +425,20 @@ type StorageCellRow struct {
 	HTTPStatus, S3Code string // the first failure's (status as text)
 }
 
-// cellCache keeps the last campaign's StorageCells rows: a round's are
-// written once with it, so a later call reads only the newer rounds (a
-// schedule kept for 90 days has millions of attempts).
-type cellCache struct {
+// roundCache keeps rows of the last campaign read, oldest round first: a
+// round's attempts are written once with it, so a later call reads only the
+// newer rounds (a schedule kept for 90 days has millions of attempts).
+type roundCache[T any] struct {
 	mu       sync.Mutex
 	campaign int64
 	created  int64 // its created_ms: ids are reused once pruning empties a table
 	last     int64 // the newest round read
-	rows     []StorageCellRow
+	rows     []T
 }
 
-// StorageCells groups a campaign's attempts by round, target, phase and
-// class, oldest round first.
-func (s *SQLite) StorageCells(ctx context.Context, campaign int64) ([]StorageCellRow, error) {
-	c := &s.cells
+// get returns the campaign's rows: the cached ones still kept, and newer
+// ones from read(after), which returns the rows of rounds after that id.
+func (c *roundCache[T]) get(ctx context.Context, s *SQLite, campaign int64, round func(T) int64, read func(after int64) ([]T, error)) ([]T, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var created sql.NullInt64
@@ -452,37 +451,114 @@ func (s *SQLite) StorageCells(ctx context.Context, campaign int64) ([]StorageCel
 		// Another campaign, one with a reused id, or rounds gone: read afresh.
 		c.campaign, c.created, c.last, c.rows = campaign, created.Int64, 0, nil
 	}
-	if i := slices.IndexFunc(c.rows, func(r StorageCellRow) bool { return r.Round >= first.Int64 }); i > 0 {
+	if i := slices.IndexFunc(c.rows, func(r T) bool { return round(r) >= first.Int64 }); i > 0 {
 		c.rows = slices.Delete(c.rows, 0, i)
 	} else if i < 0 {
 		c.rows = c.rows[:0]
 	}
-	rows, err := s.db.r.QueryContext(ctx, `SELECT a.round, a.target, a.phase, a.class, coalesce(a.edge_prefix, ''), count(*), max(coalesce(a.stall_ms, 0)),
-		avg(a.goodput_bps), coalesce(min(CAST(a.http_status AS TEXT)), ''), coalesce(min(a.s3_code), '')
-		FROM storage_attempts a JOIN storage_rounds r ON r.id = a.round WHERE r.campaign = ? AND r.id > ?
-		GROUP BY a.round, a.target, a.phase, a.class, a.edge_prefix ORDER BY a.round, a.target, a.phase, a.class`, campaign, c.last)
+	add, err := read(c.last)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var add []StorageCellRow
-	for rows.Next() {
-		var r StorageCellRow
-		var g sql.NullFloat64
-		if err := rows.Scan(&r.Round, &r.Target, &r.Phase, &r.Class, &r.EdgePrefix, &r.N, &r.MaxStallMs, &g, &r.HTTPStatus, &r.S3Code); err != nil {
-			return nil, err
-		}
-		r.GoodputBps = ptrF(g)
-		add = append(add, r)
-	}
-	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	c.rows = append(c.rows, add...)
 	if len(c.rows) > 0 {
-		c.last = c.rows[len(c.rows)-1].Round
+		c.last = round(c.rows[len(c.rows)-1])
 	}
 	return slices.Clone(c.rows), nil
+}
+
+// StorageCells groups a campaign's attempts by round, target, phase and
+// class, oldest round first.
+func (s *SQLite) StorageCells(ctx context.Context, campaign int64) ([]StorageCellRow, error) {
+	return s.cells.get(ctx, s, campaign, func(r StorageCellRow) int64 { return r.Round }, func(after int64) ([]StorageCellRow, error) {
+		rows, err := s.db.r.QueryContext(ctx, `SELECT a.round, a.target, a.phase, a.class, coalesce(a.edge_prefix, ''), count(*), max(coalesce(a.stall_ms, 0)),
+			avg(a.goodput_bps), coalesce(min(CAST(a.http_status AS TEXT)), ''), coalesce(min(a.s3_code), '')
+			FROM storage_attempts a JOIN storage_rounds r ON r.id = a.round WHERE r.campaign = ? AND r.id > ?
+			GROUP BY a.round, a.target, a.phase, a.class, a.edge_prefix ORDER BY a.round, a.target, a.phase, a.class`, campaign, after)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var add []StorageCellRow
+		for rows.Next() {
+			var r StorageCellRow
+			var g sql.NullFloat64
+			if err := rows.Scan(&r.Round, &r.Target, &r.Phase, &r.Class, &r.EdgePrefix, &r.N, &r.MaxStallMs, &g, &r.HTTPStatus, &r.S3Code); err != nil {
+				return nil, err
+			}
+			r.GoodputBps = ptrF(g)
+			add = append(add, r)
+		}
+		return add, rows.Err()
+	})
+}
+
+// StorageRoundTiming is one round's fresh connections to one target that
+// worked: how many, and the median time of each step (ms; nil when none
+// was measured).
+type StorageRoundTiming struct {
+	Round                   int64
+	Target                  string
+	N                       int
+	DNS, Connect, TLS, TTFB *float64
+}
+
+// StorageRoundTimings is the median timings of every round of a campaign,
+// by target, oldest round first. Unlike StorageTimings it covers every
+// round: medians are taken once per round and kept.
+func (s *SQLite) StorageRoundTimings(ctx context.Context, campaign int64) ([]StorageRoundTiming, error) {
+	return s.timings.get(ctx, s, campaign, func(r StorageRoundTiming) int64 { return r.Round }, func(after int64) ([]StorageRoundTiming, error) {
+		// SQLite has no median: the rows come in order and each group's are gathered here.
+		rows, err := s.db.r.QueryContext(ctx, `SELECT a.round, a.target, a.dns_ms, a.connect_ms, a.tls_ms, a.ttfb_ms
+			FROM storage_attempts a JOIN storage_rounds r ON r.id = a.round
+			WHERE r.campaign = ? AND r.id > ? AND a.phase = ? AND a.class = 'ok' ORDER BY a.round, a.target`, campaign, after, model.StoragePhaseCold)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var add []StorageRoundTiming
+		var steps [4][]float64
+		flush := func() {
+			if n := len(add); n > 0 {
+				r := &add[n-1]
+				r.DNS, r.Connect, r.TLS, r.TTFB = medianOf(steps[0]), medianOf(steps[1]), medianOf(steps[2]), medianOf(steps[3])
+			}
+			steps = [4][]float64{}
+		}
+		for rows.Next() {
+			var round int64
+			var target string
+			var v [4]sql.NullFloat64
+			if err := rows.Scan(&round, &target, &v[0], &v[1], &v[2], &v[3]); err != nil {
+				return nil, err
+			}
+			if n := len(add); n == 0 || add[n-1].Round != round || add[n-1].Target != target {
+				flush()
+				add = append(add, StorageRoundTiming{Round: round, Target: target})
+			}
+			add[len(add)-1].N++
+			for i := range v {
+				if v[i].Valid {
+					steps[i] = append(steps[i], v[i].Float64)
+				}
+			}
+		}
+		flush()
+		return add, rows.Err()
+	})
+}
+
+// medianOf is the median of v (sorted in place), nil when empty.
+func medianOf(v []float64) *float64 {
+	if len(v) == 0 {
+		return nil
+	}
+	slices.Sort(v)
+	m := v[len(v)/2]
+	if len(v)%2 == 0 {
+		m = (v[len(v)/2-1] + m) / 2
+	}
+	return &m
 }
 
 // SaveStorageTrace stores a traceroute snapshot (t.ID is set).
