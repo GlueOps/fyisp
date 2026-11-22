@@ -298,7 +298,8 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		unknown  = 0
 		last     = 0       // highest TTL that answered
 		retries  = 0       // silent runs asked again from fresh ports (at most surveyRetries)
-		prevK    *limitKey // the previous TTL's key when its fixed-flow probe was silent
+		prevK    *limitKey // key of the last silent fixed-flow TTL (prevTTL) of the current silent run
+		prevTTL  int
 	)
 	// fresh asks ttl from a fresh port once k's bucket is full again (a
 	// silent probe's wait refills most of it).
@@ -338,8 +339,10 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		if expect != dst {
 			var ok bool
 			if keys, ok = tr.lim.takeSpare(k, now); !ok {
-				prevK = nil // only TTLs next to each other count as a silent run
+				// a TTL the cap leaves out doesn't end a silent run (past a NAT
+				// the routers every target shares are capped most); an answer does
 				if r, ok := sv.recent(expect, now); ok && own {
+					prevK = nil
 					answered, rtts, probed = append(answered, expect), append(rtts, r), append(probed, true)
 					unknown, last = 0, ttl
 					continue
@@ -361,13 +364,14 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		}
 		// Some NATs and firewalls drop a flow's repeated SYNs (or the answers
 		// to them) until their state for it expires, so past them a fixed flow
-		// goes silent. When two TTLs in a row are silent, both are asked again
-		// from fresh ports; when one answers, this round goes on from fresh
-		// ports. One lost answer (a router's rate limit) keeps the flow.
+		// goes silent. When two probed TTLs in a row are silent (TTLs the cap
+		// left out between them don't count), both are asked again from fresh
+		// ports, each under its own key; when one answers, this round goes on
+		// from fresh ports. One lost answer (a router's rate limit) keeps the flow.
 		silent := err == nil && fixed && !heard(h)
 		retry := silent && prevK != nil && retries < surveyRetries && tp != nil
 		if retry {
-			hp, kp, okp := fresh(ttl-1, *prevK)
+			hp, kp, okp := fresh(prevTTL, *prevK)
 			hc, kc, okc := fresh(ttl, k)
 			if okp || okc {
 				retries++
@@ -376,11 +380,11 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 				fixed = false
 				if okp && hp.Addr.IsValid() && !hp.Reached && !hp.Unreach {
 					a := hp.Addr.Unmap()
-					answered[ttl-2], rtts[ttl-2] = a, hp.RTT
-					tr.lim.answered(ttl-1, prevK.addr, a, kp, tr.o.Now())
+					answered[prevTTL-1], rtts[prevTTL-1] = a, hp.RTT
+					tr.lim.answered(prevTTL, prevK.addr, a, kp, tr.o.Now())
 					tr.hops.seen(a)
 					sv.answered(a, hp.RTT, tr.o.Now())
-					unknown, last = 0, ttl-1
+					unknown, last = 0, prevTTL
 				}
 				if okc {
 					h, keys = hc, append(keys, kc...)
@@ -390,7 +394,7 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		prevK = nil
 		if silent && fixed && !retry { // after a retry, the next one needs two more silent TTLs
 			kk := k
-			prevK = &kk
+			prevK, prevTTL = &kk, ttl
 		}
 		if err != nil {
 			tr.o.Log.Debug("path survey: probe failed", "target", t.st.t.Name, "ttl", ttl, "err", err)
