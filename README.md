@@ -495,7 +495,7 @@ To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md)
 
 <!-- x-release-please-start-version -->
 ```sh
-IMAGE=ghcr.io/glueops/fyisp:v0.18.1
+IMAGE=ghcr.io/glueops/fyisp:v0.18.2
 ```
 <!-- x-release-please-end -->
 
