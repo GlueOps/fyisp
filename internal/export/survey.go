@@ -36,7 +36,7 @@ type SurveyReader interface {
 }
 
 // noData is the note on stderr when --addrs or --survey finds nothing.
-const noData = "fyisp export: nothing in this range (--addrs and --survey need the path survey, which --path-survey=false turns off)\n"
+const noData = "fyisp export: nothing in this range (--addrs and --survey need fyisp started with --path-survey)\n"
 
 // WriteAddrs writes the address periods that overlap [from, to] as CSV;
 // a note goes to stderr when there are none.

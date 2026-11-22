@@ -52,8 +52,8 @@ origin and the CSRF token. Every
 test waits in one queue and exactly one runs at a time: the owner's tests
 first, then scheduled ones.
 
-The path survey is on by default (`--path-survey=false` or
-`FYISP_PATH_SURVEY=0` turns it off). Every 15 minutes it traceroutes each
+The path survey is off unless you turn it on (`--path-survey`, or
+`FYISP_PATH_SURVEY=1`). Every 15 minutes it traceroutes each
 TCP and HTTPS target of the profile with TCP SYNs to the target's own port
 (on Linux from one fixed source port per target), so the routers on the way
 and the target see probes from your public IP address. It uses the same

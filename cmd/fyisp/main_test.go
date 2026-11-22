@@ -63,22 +63,22 @@ func TestTunnelEnv(t *testing.T) {
 	}
 }
 
-// TestPathSurveyEnv: the path survey is on unless --path-survey=false or
-// FYISP_PATH_SURVEY=0; the flag wins.
+// TestPathSurveyEnv: the path survey is off unless --path-survey or
+// FYISP_PATH_SURVEY=1; the flag wins.
 func TestPathSurveyEnv(t *testing.T) {
 	t.Setenv("FYISP_PATH_SURVEY", "")
-	if c, err := parseFlags(nil); err != nil || !c.pathSurvey {
+	if c, err := parseFlags(nil); err != nil || c.pathSurvey {
 		t.Errorf("default: path survey %v, %v", c.pathSurvey, err)
 	}
-	if c, err := parseFlags([]string{"--path-survey=false"}); err != nil || c.pathSurvey {
-		t.Errorf("--path-survey=false: path survey %v, %v", c.pathSurvey, err)
-	}
-	t.Setenv("FYISP_PATH_SURVEY", "0")
-	if c, err := parseFlags(nil); err != nil || c.pathSurvey {
-		t.Errorf("FYISP_PATH_SURVEY=0: path survey %v, %v", c.pathSurvey, err)
-	}
 	if c, err := parseFlags([]string{"--path-survey"}); err != nil || !c.pathSurvey {
-		t.Errorf("--path-survey over FYISP_PATH_SURVEY=0: path survey %v, %v", c.pathSurvey, err)
+		t.Errorf("--path-survey: path survey %v, %v", c.pathSurvey, err)
+	}
+	t.Setenv("FYISP_PATH_SURVEY", "1")
+	if c, err := parseFlags(nil); err != nil || !c.pathSurvey {
+		t.Errorf("FYISP_PATH_SURVEY=1: path survey %v, %v", c.pathSurvey, err)
+	}
+	if c, err := parseFlags([]string{"--path-survey=false"}); err != nil || c.pathSurvey {
+		t.Errorf("--path-survey=false over FYISP_PATH_SURVEY=1: path survey %v, %v", c.pathSurvey, err)
 	}
 	t.Setenv("FYISP_PATH_SURVEY", "off")
 	if _, err := parseFlags(nil); err == nil {

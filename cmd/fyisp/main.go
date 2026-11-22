@@ -170,7 +170,7 @@ func parseFlags(args []string) (config, error) {
 	// No env default: flag's usage prints defaults, and this one is a secret.
 	fs.StringVar(&c.adminToken, "admin-token", "", "token the dashboard and its API require (at least 32 letters, digits or - . _ ~, e.g. from openssl rand -hex 16); change it to sign every browser out (default: $FYISP_ADMIN_TOKEN, else a new random one at each start, shown as a link in the log)")
 	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL", false), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
-	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY", true), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (fyisp export --survey); --path-survey=false turns it off; see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else true)")
+	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY", false), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (fyisp export --survey); see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else false)")
 	fs.Var(&c.allowHosts, "allow-host", "extra `name` the dashboard may be opened as, e.g. nas.local or nas.local:3000 (repeatable or comma-separated)")
 	fs.StringVar(&c.pprofAddr, "pprof", "", "serve Go pprof on this loopback address (debugging)")
 	fs.StringVar(&c.logFormat, "log-format", "auto", "log format: auto, text or json")

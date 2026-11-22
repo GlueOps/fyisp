@@ -13,7 +13,7 @@ fyisp is one small program. The default makes 28 checks for homes and remote wor
 
 ## Quick start
 
-For your home connection or a laptop, nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it, measuring the default's 28 everyday services. To measure a server's connection or compare datacenters, see [On a server](#on-a-server-datacenter-or-office).
+For your home connection or a laptop, nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it. To measure a server's connection or compare datacenters, see [On a server](#on-a-server-datacenter-or-office).
 
 ### Linux and macOS
 
@@ -33,7 +33,7 @@ Open **PowerShell** (not Command Prompt) and paste:
 
 On a NAS, a Raspberry Pi or a home server, use [Docker](#docker). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
 
-> **On a work laptop**, read [Privacy](#privacy) first: your employer's network sees fyisp's name lookups (YouTube and Netflix included) and traceroutes.
+> **On a work laptop**, read [Privacy](#privacy) first: your employer's network sees fyisp's name lookups, YouTube and Netflix included.
 
 ### What happens next
 
@@ -74,7 +74,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
 | `--retention 30d` | Keeps less history, and so less disk (the default is 90 days). |
-| `--path-survey=false` | Turns off the path survey (on by default): a TCP traceroute to every target every 15 minutes, kept hour by hour, for [comparing sites](docs/COMPARING-SITES.md). With the default profile it is about 1 probe every 2 seconds. `FYISP_PATH_SURVEY=0` in Docker or systemd. |
+| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, and the address each target resolved to, to [compare this site with another](docs/COMPARING-SITES.md). The [server command](#on-a-server-datacenter-or-office) turns it on. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
 
 ### Docker
@@ -83,8 +83,8 @@ On Linux, run the container on the host's network, so that fyisp sees your real 
 
 ```sh
 (umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
-docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
-  -e FYISP_ADMIN_TOKEN="$(cat fyisp-token)" ghcr.io/glueops/fyisp
+FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
 echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
 ```
 
@@ -115,28 +115,28 @@ To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md)
 ```sh
 (umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
 IMAGE=ghcr.io/glueops/fyisp:v0.16.0 # x-release-please-version
-docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-  -e FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" "$IMAGE" --listen=127.0.0.1:3000 --profile all
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
 ```
 
-- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. To open two servers at once, start the second with `--listen=127.0.0.1:3001` and forward `3001:127.0.0.1:3001`: fyisp answers only on the port it listens on.
-- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H "Authorization: Bearer $(cat ~/.fyisp-token)" http://127.0.0.1:3000/api/status` shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
+- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
+- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
 - **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
 - **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
-- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). Upgrade all sites together: change the tag and run the commands again ([Upgrading](#upgrading)).
+- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). Upgrade all sites together: `docker rm -f fyisp`, then the `IMAGE=` line with the new tag and the `docker run` line again, not the token line (the volume keeps your data).
 - **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
 - **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
 
 <details>
 <summary>Without Docker: systemd</summary>
 
-Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token and the catalog with a drop-in:
+Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token, the catalog and the path survey with a drop-in:
 
 ```sh
 sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
 sudo mkdir -p /etc/systemd/system/fyisp.service.d
-printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' \
+printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' \
   | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
 sudo systemctl daemon-reload && sudo systemctl restart fyisp
 ```
@@ -336,12 +336,12 @@ fyisp has no account and no telemetry, and its data stays on your machine. What 
   extends: [default]
   remove: [YouTube, Netflix]      # also possible: dev-GitHub, Dropbox, OneDrive, Teams-Relay
   ```
-- **On a work laptop**, keep the default (or the default without YouTube and Netflix, as above) with `--path-survey=false`, and run any extra profiles on a home machine instead: a NAS, a Raspberry Pi or a family computer on the same network sees the same connection. If your employer manages the laptop, check its policy before running monitoring tools on it. `fyisp profiles default` lists the names fyisp looks up (Google Meet's TCP check goes to `meet.google.com`).
+- **On a work laptop**, keep the default (or the default without YouTube and Netflix, as above) and run any extra profiles on a home machine instead: a NAS, a Raspberry Pi or a family computer on the same network sees the same connection. If your employer manages the laptop, check its policy before running monitoring tools on it. `fyisp profiles default` lists the names fyisp looks up (Google Meet's TCP check goes to `meet.google.com`).
 - **Hosts traced on request.** *Investigate* traces any public host someone signed in to your dashboard types in (within its limits: 4 at once, about 10 minutes each). That host and the routers on the way see probes from your public IP address, and your DNS resolver sees the name looked up, about once a minute while the trace runs. Its hop numbers age out with the rest of the data, but the host's name stays in the database's index of series. No other service is involved.
 - **Wi-Fi or router.** To word Home's first box, fyisp reads whether its own connection is Wi-Fi (no network name, nothing about other devices) and whether the page is opened on the same machine, which is never stored, logged or returned (see [Wi-Fi or router?](docs/VERDICTS.md#wi-fi-or-router)). The connection type itself is in fyisp's log and in speed-test results.
 - **`--tunnel`** (off by default) connects to Cloudflare to publish the dashboard at a random `https://….trycloudflare.com` address (see [Remote access](#remote-access)). Cloudflare sees your public IP address and your machine's local address, and it decrypts the dashboard's traffic at its edge, the admin token included. Your DNS resolver sees the lookups of `api.trycloudflare.com` and Cloudflare's `argotunnel.com` names (or fyisp asks 1.1.1.1 over TLS), and the request for a tunnel goes through `HTTPS_PROXY` when that is set. The dashboard there needs the admin token, as everywhere. [SECURITY.md](SECURITY.md#what-leaves-your-machine) lists everything the tunnel sends.
 - **Storage tests** connect only to the S3-compatible endpoints you save as targets, over IPv4, and only when you ask: a check is one request, and a campaign sends rounds every few minutes (fresh connections, and with keys a download and an upload to your bucket under `fyisp-test/`) while it runs, and traceroutes the provider's address (as *Investigate* does) after the first round and after a connection failure. The endpoint sees your public IP address and your requests; your DNS resolver sees its name looked up for every fresh connection. Targets are kept in `storage-targets.json` in the data directory, readable by fyisp's user only, never in the database. Keys you enter are never shown again, logged or exported: a campaign holds them in memory until it ends, or a weekly schedule saves them in that file until it ends. Through `--tunnel` they pass through Cloudflare, so use keys scoped to a test bucket. [SECURITY.md](SECURITY.md#what-leaves-your-machine) has the details.
-- **The path survey** (on by default; `--path-survey=false` or `FYISP_PATH_SURVEY=0` turns it off) traces the TCP path to every target every 15 minutes, so every router on the way to them sees probes from your public IP address, as with *Investigate*. A firewall or IDS on the way (an employer's, on a work laptop) may log them as short connection attempts. It keeps no address of your own network or your provider's (only "yours" and "provider", and the provider's network number), and no private address past it. Turning it off stops new rows; what it kept stays until `--retention` ages it out.
+- **The path survey** (`--path-survey`, off by default; the server command turns it on) traces the TCP path to every target every 15 minutes, so every router on the way to them sees probes from your public IP address, as with *Investigate*. It keeps no address of your own network or your provider's (only "yours" and "provider", and the provider's network number), and no private address past it. Turning it off stops new rows; what it kept stays until `--retention` ages it out.
 - **A screenshot or export you send** shows what it says. Home and *What happened at …?* show no addresses; the Details charts and traceroutes include your router's and your provider's addresses. `fyisp export` lists your targets; its trace rows give the hop number, not the address; `--survey` gives the routers past your provider with their addresses, and `--addrs` the addresses your targets' names resolved to.
 
 ## ICMP permissions

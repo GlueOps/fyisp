@@ -107,7 +107,7 @@ type Status struct {
 	Targets int         `json:"targets"` // targets in the profile
 	Ready   int         `json:"ready"`   // targets that have reported at least one sample (see Warmup)
 	Store   store.Stats `json:"store"`
-	// Survey is the path survey's progress (nil: --path-survey=false).
+	// Survey is the path survey's progress (nil: --path-survey is off).
 	Survey *trace.SurveyStatus `json:"survey,omitempty"`
 }
 

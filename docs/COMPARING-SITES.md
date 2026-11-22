@@ -1,10 +1,10 @@
 # Comparing sites
 
-fyisp at two sites (two datacenters, two offices, two providers) tells you where each one is slower; its path survey (on by default) also keeps what you need to tell **why**. Back to the [README](../README.md).
+fyisp at two sites (two datacenters, two offices, two providers) tells you where each one is slower; with `--path-survey` it also keeps what you need to tell **why**. Back to the [README](../README.md).
 
 ## What to run
 
-At every site, the same fyisp release with the same profile, and the path survey on (the default). The README's [server command](../README.md#on-a-server-datacenter-or-office) does that with Docker and `--profile all`, on a pinned release.
+At every site, the same fyisp release with the same profile, and `--path-survey` on. The README's [server command](../README.md#on-a-server-datacenter-or-office) does that with Docker, `--profile all` and `--path-survey`, on a pinned release.
 
 The path survey traces the TCP path to every TCP and HTTPS target of the profile every 15 minutes (to the target's own host and port, one TTL at a time) and keeps each target's paths hour by hour: which router answered each TTL, how often and how fast. It is separate from *Investigate* and the always-on traces and doesn't change what they measure. With `--profile all` it adds about 25 probes a second and, over the default 90 days, roughly 1 to 4 GB of disk. What routers and targets see is in [OPERATORS.md](OPERATORS.md). Both machines need the right time (NTP): the files are matched by UTC time.
 
