@@ -47,6 +47,9 @@ const (
 	// answer to another survey round this recent instead (the routers
 	// every target shares get more rounds a second than the cap allows).
 	surveyReuse = time.Minute
+	// surveyRetries: silent runs of a round asked again from fresh ports
+	// (one may be routers that never answer, before a NAT that drops the flow)
+	surveyRetries = 2
 )
 
 // Source ports of survey flows: below Linux's default ephemeral range
@@ -293,8 +296,9 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		complete = true
 		reached  = false
 		unknown  = 0
-		last     = 0       // highest TTL that answered
-		retried  = false   // two silent fixed-flow TTLs were asked again from fresh ports
+		last     = 0 // highest TTL that answered
+		retries  = 0 // silent runs asked again from fresh ports (at most surveyRetries)
+		asked    = false
 		prevK    *limitKey // the previous TTL's key when its fixed-flow probe was silent
 	)
 	// fresh asks ttl from a fresh port once k's bucket is full again (a
@@ -362,10 +366,13 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		// from fresh ports; when one answers, this round goes on from fresh
 		// ports. One lost answer (a router's rate limit) keeps the flow.
 		silent := err == nil && fixed && !heard(h)
-		if silent && prevK != nil && !retried && tp != nil {
-			retried = true
+		if silent && prevK != nil && !asked && retries < surveyRetries && tp != nil {
 			hp, kp, okp := fresh(ttl-1, *prevK)
 			hc, kc, okc := fresh(ttl, k)
+			if okp || okc {
+				retries++
+				asked = true // the next retry needs an answer in between: not twice in one silent run
+			}
 			if okp && heard(hp) || okc && heard(hc) {
 				fixed = false
 				if okp && hp.Addr.IsValid() && !hp.Reached && !hp.Unreach {
@@ -380,6 +387,9 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 					h, keys = hc, append(keys, kc...)
 				}
 			}
+		}
+		if heard(h) {
+			asked = false
 		}
 		prevK = nil
 		if silent && fixed {
