@@ -9,6 +9,7 @@ import argparse
 import csv
 import gzip
 import io
+import http.client
 import ipaddress
 import json
 import math
@@ -204,7 +205,10 @@ def http_get(s, path, dl, dest=None):
         try:
             resp = _opener.open(req, timeout=max(5, min(dl.left(), 120)))
         except urllib.error.HTTPError as e:
-            status, headers, body = e.code, e.headers, e.read(65536)
+            try:
+                status, headers, body = e.code, e.headers, e.read(65536)
+            except (OSError, http.client.HTTPException):
+                return "network", None, {}
             if status == 429 and attempt + 1 < TRIES:
                 ra = headers.get("Retry-After", "5")
                 wait = min(int(ra) if ra.isdigit() else 5, 10)
@@ -244,6 +248,8 @@ def http_get(s, path, dl, dest=None):
             return resp.status, n, resp.headers
         except OSError as e:
             return _net_status(e), None, {}
+        except http.client.HTTPException:  # e.g. IncompleteRead: a chunked answer cut off
+            return "network", None, {}
         finally:
             if tmp and os.path.exists(tmp):
                 os.remove(tmp)
@@ -589,7 +595,7 @@ def where_added(hs, hf, thr):
         base = es[j][3]
     net = es[k][2] or next((h[2] for h in es[k:] if h[2]), None)
     before = next((h[2] for h in reversed(es[:k]) if h[2] and h[2] != net), None)
-    router = next((h[1] for h in reversed(es[:k]) if h[1]), None) or next((h[1] for h in es[k:] if h[1]), None)
+    router = next((h[1] for h in reversed(es[:k]) if h[1]), None)  # none when the step is before any known router
     return {"network": net, "prev": before, "router": router, "step_ms": round(inc, 1), "at": at}
 
 
@@ -624,7 +630,11 @@ def cause(res, ra, rb, sa, sb, a, b):
             if after_s > after_f:
                 ev.update(network=ps[ps.index(meet) + 1], prev=meet, extra_networks=after_s - after_f)
                 return "longer_path", ev
-    both = [h for h in ss if h in sf and ss[h]["hops"] and sf[h]["hops"]]
+    # only hours where both traces reached the destination: a trace cut short (routers that
+    # don't answer) would make its last hop look like the destination
+    reached = lambda p: bool(p["hops"]) and p["hops"][-1][1] == p["dest"]
+    res["reached"] = {S: any(reached(p) for p in ss.values()), res["faster"]: any(reached(p) for p in sf.values())}
+    both = [h for h in ss if h in sf and reached(ss[h]) and reached(sf[h])]
     if both:
         thr = max(MIN_MS, 0.5 * (res["delta_ms"] or 0))
         found = [w for w in (where_added(ss[h]["hops"], sf[h]["hops"], thr) for h in both) if w]
@@ -800,17 +810,20 @@ def clusters_and_fixes(results, paths):
     for r in results:
         if r.get("cause") not in ("longer_path", "latency_inside", "congestion", "different_route", "same_path_unexplained"):
             continue
-        us = first_up(paths[r["slower"]].get(r["target"]))
-        uf = first_up(paths[r["faster"]].get(r["target"]))
-        if us and uf and us != uf:
-            fx[(r["slower"], us, r["faster"], uf)].append(r)
+        if not (r.get("reached") or {}).get(r["faster"]):
+            continue  # the faster path is only known up to where its routers stop answering
+        pf = paths[r["faster"]].get(r["target"]) or ()
+        us, uf = first_up(paths[r["slower"]].get(r["target"])), first_up(pf)
+        if not (us and uf and us != uf):
+            continue
+        # peer: the faster site reaches this target's network directly; prefer: the slower site already
+        # sends traffic for other networks through that upstream; new_transit: it doesn't.
+        transit_s = {p[0] for p in paths[r["slower"]].values() if len(p) > 1}
+        kind = "peer" if uf == pf[-1] else ("prefer" if uf in transit_s else "new_transit")
+        fx[(kind, r["slower"], us, r["faster"], uf)].append(r)
     fixes = []
-    for (s, us, f, uf), rs in sorted(fx.items(), key=lambda kv: -len(kv[1])):
-        dest = Counter(paths[f].get(r["target"], ())[-1] for r in rs if paths[f].get(r["target"]))
-        ups_s = {p[0] for p in paths[s].values() if p}
-        # peer: the faster site reaches the destination network directly; prefer: the slower site
-        # already uses that upstream for other targets; new_transit: it doesn't.
-        kind = "peer" if uf in dest else ("prefer" if uf in ups_s else "new_transit")
+    for (kind, s, us, f, uf), rs in sorted(fx.items(), key=lambda kv: -len(kv[1])):
+        dest = Counter(paths[f][r["target"]][-1] for r in rs)
         fixes.append({"slower": s, "slower_via": us, "faster": f, "faster_via": uf, "kind": kind, "targets": len(rs),
                       "median_delta_ms": med_gap(rs), "dest_networks": [d for d, _ in dest.most_common(6)]})
     return clusters, fixes

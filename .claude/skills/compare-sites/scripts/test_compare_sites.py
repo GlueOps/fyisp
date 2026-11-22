@@ -225,7 +225,7 @@ class Causes(unittest.TestCase):
         t = r["T"]
         self.assertEqual(t["cause"], "latency_inside")
         self.assertEqual(t["evidence"]["network"], "64501")
-        self.assertEqual(t["evidence"]["router"], "198.51.100.1")
+        self.assertEqual(t["evidence"]["router"], "198.51.100.1")  # the router before the rise
         self.assertEqual(fixes[0]["kind"], "new_transit")
         self.assertEqual((fixes[0]["slower_via"], fixes[0]["faster_via"]), ("64501", "64500"))
 
@@ -239,6 +239,7 @@ class Causes(unittest.TestCase):
         r = run_analysis(a, b)[0]
         self.assertEqual(r["T"]["cause"], "latency_inside")
         self.assertEqual(r["T"]["evidence"]["network"], "64401")  # site-b's provider, not 64999
+        self.assertIsNone(r["T"]["evidence"]["router"])  # no known router before the provider
 
     def test_anycast_far_site(self):
         a_hops = [(1, "provider", 64400, 1), (3, "192.0.2.1", 64500, 3), (5, "203.0.113.1", 13335, 5)]
@@ -256,11 +257,34 @@ class Causes(unittest.TestCase):
         self.assertIn(r["T"]["cause"], ("latency_inside", "different_route"))
         self.assertEqual(r["T"]["evidence"]["network"], "64501")
 
+    def test_peer_is_per_target_and_needs_a_reached_destination(self):
+        # 3 targets beyond transit 1299, 1 inside it: one prefer/new-transit row and one peer row
+        a, b = Fixture("site-a"), Fixture("site-b")
+        for i, dnet in enumerate([64601, 64602, 64603, 1299]):
+            t, d = f"T{i}", f"192.0.2.{20 + i}"
+            ap = f"1299 {dnet}" if dnet != 1299 else "1299"
+            a.conn(t, HOURS, 20, as_path=ap, dests=d).path(t, HOURS, [(1, "provider", 64400, 1), (3, "192.0.2.1", 1299, 3), (8, d, dnet, 20)], dest=d)
+            b.conn(t, HOURS, 80, as_path=f"64501 {dnet}", dests=d).path(t, HOURS, [(1, "provider", 64401, 1), (3, "198.51.100.1", 64501, 60), (8, d, dnet, 80)], dest=d)
+        fixes = run_analysis(a, b)[3]
+        self.assertEqual(sorted((f["kind"], f["targets"]) for f in fixes), [("new_transit", 3), ("peer", 1)])
+        # cut short: site-a's trace never reaches the destination, so no fix and no cause from paths
+        a2 = Fixture("site-a").conn("C", HOURS, 20, as_path="1299").path("C", HOURS, [(1, "provider", 64400, 1), (3, "192.0.2.1", 1299, 3)])
+        b2 = Fixture("site-b").conn("C", HOURS, 80, as_path="64501 64601").path("C", HOURS, [(1, "provider", 64401, 1), (3, "198.51.100.1", 64501, 60), (8, "192.0.2.10", 64601, 80)])
+        r, _, _, fixes = run_analysis(a2, b2)
+        self.assertEqual(fixes, [])
+        self.assertNotEqual(r["C"]["cause"], "latency_inside")
+
     def test_peer_fix(self):
         hops = [(1, "provider", 64401, 1), (3, "198.51.100.1", 64501, 60), (8, "192.0.2.10", 64510, 61)]
         r, _, _, fixes = self.pair(61, hops, b_path="64501 64510", a_path="64510",
                                    hops_a=[(1, "provider", 64400, 1), (8, "192.0.2.10", 64510, 21)])
         self.assertEqual(fixes[0]["kind"], "peer")
+
+    def test_faster_trace_short_of_destination_names_no_network(self):
+        a_hops = [(1, "provider", 64400, 1), (2, "provider", 64400, 2)]
+        b_hops = [(1, "provider", 64401, 1), (3, "198.51.100.1", 64501, 3), (8, "192.0.2.10", 64510, 60)]
+        r = self.pair(60, b_hops, b_path="64501 64510", a_path="", hops_a=a_hops)[0]
+        self.assertNotEqual(r["T"]["cause"], "latency_inside")
 
     def test_one_sided_survey_is_not_same_path(self):
         a = Fixture("site-a").conn("O", HOURS, 20, dests="", as_path="")

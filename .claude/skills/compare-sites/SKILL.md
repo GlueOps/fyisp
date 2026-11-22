@@ -22,7 +22,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run.sh save-site NAME <<'EOF'
 EOF
 ```
 
-Use the quoted `'EOF'`, never an unquoted heredoc or `echo`. Then say once that the token is now in this session's transcript and logs, and that restarting fyisp with a new token signs everyone out.
+Use the quoted `'EOF'`, never an unquoted heredoc or `echo`, and add ` http-ok` only when the user wrote it. Then say once that the token is now in this session's transcript and logs, and that restarting fyisp with a new token signs everyone out.
 
 Don't ask for a link in the middle of the task: after your reply, run.sh is no longer pre-approved. If a site is missing (`not in the sites file`), stop and tell the user either to add it to the sites file themselves (the "With an AI agent" section of docs/COMPARING-SITES.md shows how, and keeps the token out of this session), or to run `/compare-sites` again with `NAME=<link>` in the arguments.
 
