@@ -167,8 +167,9 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 		{"silent destination", []string{"62.1.1.1", "62.2.2.2"}, 0, 0, 0, nil, 1, 0},
 		{"two silent routers past nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5"}, 2, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:198.51.100.1"}, 0, 1},
 		{"silent pair right before nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5", "62.6.6.6"}, 4, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:62.6.6.6", "7:198.51.100.1"}, 0, 1},
-		// TTL 3 is left out (its bucket isn't full): TTLs 2 and 4 are no silent run, and TTL 3 isn't probed
-		{"capped ttl between", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3", "62.4.4.4"}, 2, 0, 3, []string{"1:62.1.1.1", "2:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 0, 1},
+		// TTL 3 is left out (its bucket isn't full): TTLs 2 and 4 are still a silent run, asked again
+		// under their own keys, and TTL 3 isn't probed
+		{"capped ttl between", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3", "62.4.4.4"}, 2, 0, 3, []string{"1:62.1.1.1", "2:62.2.2.2", "4:62.4.4.4", "5:198.51.100.1"}, 0, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
