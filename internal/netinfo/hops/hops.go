@@ -16,6 +16,7 @@ package hops
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"time"
 )
@@ -66,6 +67,20 @@ type TransportProber interface {
 	// probe never leaves a connection open: it is closed with a RST.
 	ProbeTransport(ctx context.Context, tp Transport, dst netip.AddrPort, ttl int, timeout time.Duration) (Hop, error)
 }
+
+// FlowProber sends TCP probes from a fixed source port, so that every TTL
+// of a trace is one flow (Paris traceroute): routers that balance load per
+// flow send them all down the same path. Only Linux implements it: other
+// systems match answers by source port, so a late answer would be taken
+// for the next TTL's.
+type FlowProber interface {
+	// ProbeFlow is ProbeTransport for TCP from source port sport. It fails
+	// with ErrPortInUse when sport cannot be bound.
+	ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint16, ttl int, timeout time.Duration) (Hop, error)
+}
+
+// ErrPortInUse: ProbeFlow's source port is taken.
+var ErrPortInUse = errors.New("source port in use")
 
 // Support says which transports this OS traces without elevation.
 type Support struct {

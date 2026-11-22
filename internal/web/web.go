@@ -36,6 +36,7 @@ import (
 	"github.com/glueops/fyisp/internal/storage"
 	"github.com/glueops/fyisp/internal/store"
 	"github.com/glueops/fyisp/internal/tiles"
+	"github.com/glueops/fyisp/internal/trace"
 	"github.com/glueops/fyisp/internal/verdict"
 )
 
@@ -106,6 +107,8 @@ type Status struct {
 	Targets int         `json:"targets"` // targets in the profile
 	Ready   int         `json:"ready"`   // targets that have reported at least one sample (see Warmup)
 	Store   store.Stats `json:"store"`
+	// Survey is the path survey's progress (nil: --path-survey is off).
+	Survey *trace.SurveyStatus `json:"survey,omitempty"`
 }
 
 // Warmup counts distinct targets that have reported a sample (lost or not).

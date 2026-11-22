@@ -85,7 +85,10 @@ type SQLite struct {
 	lastFlush time.Time
 	lastErr   string
 	closed    bool
-	tr        traceState // routes, route changes and hop info (trace.go)
+	tr        traceState  // routes, route changes and hop info (trace.go)
+	sv        surveyState // address periods and the path survey (survey.go)
+
+	svBase map[surveyKey]*model.SurveyHour // guarded by flushMu (see writeSurvey)
 }
 
 // block is one series' hour in memory.
@@ -199,6 +202,9 @@ func newSQLite(db *conns, o Options) *SQLite {
 		keys:  map[int64]model.SeriesKey{},
 		ivs:   map[model.SeriesKey]int64{},
 		tr:    newTraceState(),
+		sv:    newSurveyState(),
+
+		svBase: map[surveyKey]*model.SurveyHour{},
 	}
 }
 
@@ -661,8 +667,9 @@ func (s *SQLite) Flush(ctx context.Context) error {
 	}
 	anyClosed := len(s.pending) > 0
 	tr := s.tr.snapshotLocked()
+	sv := s.sv.snapshotLocked()
 	s.mu.Unlock()
-	if len(items) == 0 && tr.empty() {
+	if len(items) == 0 && tr.empty() && sv.empty() {
 		s.mu.Lock()
 		s.lastFlush, s.lastErr = s.o.Now(), ""
 		s.mu.Unlock()
@@ -684,9 +691,10 @@ func (s *SQLite) Flush(ctx context.Context) error {
 		}
 	}
 
-	if _, err := s.writeTx(ctx, items, ups, tr); err != nil {
+	if _, err := s.writeTx(ctx, items, ups, tr, sv); err != nil {
 		return s.flushFailed(items, err)
 	}
+	pruneBase(s.svBase, s.o.Now())
 	if anyClosed {
 		if _, err := checkpoint(ctx, s.db.w); err != nil {
 			s.o.Log.Warn("store: checkpoint", "err", err)
@@ -700,7 +708,7 @@ type seriesUpsert struct {
 	iv int64
 }
 
-func (s *SQLite) writeTx(ctx context.Context, items []*flushItem, ups []seriesUpsert, tr *traceSnap) (map[model.SeriesKey]int64, error) {
+func (s *SQLite) writeTx(ctx context.Context, items []*flushItem, ups []seriesUpsert, tr *traceSnap, sv surveySnap) (map[model.SeriesKey]int64, error) {
 	tx, err := s.db.w.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -747,6 +755,9 @@ func (s *SQLite) writeTx(ctx context.Context, items []*flushItem, ups []seriesUp
 		return nil, err
 	}
 	if err := writeTrace(ctx, tx, tr); err != nil {
+		return nil, err
+	}
+	if err := writeSurvey(ctx, tx, sv, s.svBase); err != nil {
 		return nil, err
 	}
 
@@ -804,6 +815,7 @@ func (s *SQLite) writeTx(ctx context.Context, items []*flushItem, ups []seriesUp
 	clear(s.pending[len(kept):])
 	s.pending = kept
 	s.tr.committedLocked(tr)
+	s.sv.committedLocked(sv)
 	s.lastFlush, s.lastErr = s.o.Now(), ""
 	return newIDs, nil
 }
@@ -952,6 +964,9 @@ func (s *SQLite) prune(ctx context.Context, hour int64) error {
 		return err
 	}
 	if err := pruneStorage(ctx, tx, hour*hourMs); err != nil {
+		return err
+	}
+	if err := pruneSurvey(ctx, tx, hour*hourMs); err != nil {
 		return err
 	}
 	day := hour / 24

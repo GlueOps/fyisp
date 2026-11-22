@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -618,6 +619,15 @@ func (r *runner) resolve(ctx context.Context, hs *hostState) {
 		}
 	} else {
 		next.ip = ips[0].Unmap()
+		// Stick to the current address while DNS still returns it: with
+		// round-robin DNS, taking the first answer would change it at every
+		// lookup (and the tracer already sticks the same way).
+		if prev != nil && prev.ip.IsValid() && slices.ContainsFunc(ips, func(a netip.Addr) bool { return a.Unmap() == prev.ip }) {
+			next.ip = prev.ip
+		}
+		if r.o.OnResolve != nil {
+			r.o.OnResolve(hs.name, next.ip, len(ips))
+		}
 		if prev != nil && prev.err != nil {
 			r.o.Log.Info("dns lookup recovered", "host", hs.name, "failed_lookups", prev.fails)
 		}

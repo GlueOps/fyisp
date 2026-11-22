@@ -125,7 +125,11 @@ func parseExtendedErr(b []byte) (Hop, bool) {
 var supported = Support{TCP: true, UDP: true}
 
 func (errqProber) ProbeTransport(ctx context.Context, tp Transport, dst netip.AddrPort, ttl int, timeout time.Duration) (Hop, error) {
-	return errqTransport(ctx, tp, dst, ttl, timeout)
+	return errqTransport(ctx, tp, dst, 0, ttl, timeout)
+}
+
+func (errqProber) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint16, ttl int, timeout time.Duration) (Hop, error) {
+	return errqTransport(ctx, TCP, dst, sport, ttl, timeout)
 }
 
 // errqTransport sends one TCP SYN (a non-blocking connect) or UDP datagram
@@ -134,8 +138,10 @@ func (errqProber) ProbeTransport(ctx context.Context, tp Transport, dst netip.Ad
 // address. It needs neither ping sockets nor privileges. A connect that
 // completes or is refused is the destination answering. The socket is
 // closed with SO_LINGER 0 (a RST: no half-open connection on the server)
-// within 900 ms, before the first SYN retransmit (1 s).
-func errqTransport(ctx context.Context, tp Transport, dst netip.AddrPort, ttl int, timeout time.Duration) (Hop, error) {
+// within 900 ms, before the first SYN retransmit (1 s). A nonzero sport
+// binds that source port (ProbeFlow): the RST frees it at once, so the
+// next TTL can bind it again.
+func errqTransport(ctx context.Context, tp Transport, dst netip.AddrPort, sport uint16, ttl int, timeout time.Duration) (Hop, error) {
 	if !dst.Addr().Is4() {
 		return Hop{}, fmt.Errorf("%s is not IPv4", dst.Addr())
 	}
@@ -153,6 +159,11 @@ func errqTransport(ctx context.Context, tp Transport, dst netip.AddrPort, ttl in
 	}
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR, 1); err != nil {
 		return Hop{}, fmt.Errorf("IP_RECVERR: %w", err)
+	}
+	if sport != 0 {
+		if err := unix.Bind(fd, &unix.SockaddrInet4{Port: int(sport)}); err != nil {
+			return Hop{}, fmt.Errorf("%w: %w", ErrPortInUse, err)
+		}
 	}
 	sa := &unix.SockaddrInet4{Addr: dst.Addr().As4(), Port: int(dst.Port())}
 	sent := time.Now()

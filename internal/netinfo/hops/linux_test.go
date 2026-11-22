@@ -4,6 +4,8 @@ package hops
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -38,9 +40,31 @@ func TestParseExtendedErr(t *testing.T) {
 func TestTransportLoopback(t *testing.T) {
 	dst := netip.MustParseAddr("127.0.0.1")
 	for _, tp := range []Transport{TCP, UDP} {
-		h, err := errqTransport(context.Background(), tp, netip.AddrPortFrom(dst, 9), 8, 2*time.Second)
+		h, err := errqTransport(context.Background(), tp, netip.AddrPortFrom(dst, 9), 0, 8, 2*time.Second)
 		if err != nil || h.Addr != dst || !h.Reached || h.RTT <= 0 {
 			t.Errorf("%s: %+v, %v", tp, h, err)
 		}
+	}
+}
+
+// TestProbeFlowReusesPort: back-to-back probes from one fixed source port
+// all go out (the RST frees the port at once), and a port another socket
+// holds is ErrPortInUse.
+func TestProbeFlowReusesPort(t *testing.T) {
+	dst := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), 9)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	held := uint16(ln.Addr().(*net.TCPAddr).Port)
+	free := held + 1
+	for ttl := 1; ttl <= 5; ttl++ {
+		if h, err := (errqProber{}).ProbeFlow(context.Background(), dst, free, 8, 2*time.Second); err != nil || !h.Reached {
+			t.Fatalf("probe %d from port %d: %+v, %v", ttl, free, h, err)
+		}
+	}
+	if _, err := (errqProber{}).ProbeFlow(context.Background(), dst, held, 8, time.Second); !errors.Is(err, ErrPortInUse) {
+		t.Errorf("held port: %v, want ErrPortInUse", err)
 	}
 }

@@ -13,7 +13,7 @@ fyisp is one small program. The default makes 28 checks for homes and remote wor
 
 ## Quick start
 
-Nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it.
+For your home connection or a laptop, nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it. To measure a server's connection or compare datacenters, see [On a server](#on-a-server-datacenter-or-office).
 
 ### Linux and macOS
 
@@ -33,7 +33,7 @@ Open **PowerShell** (not Command Prompt) and paste:
 
 On a NAS, a Raspberry Pi or a home server, use [Docker](#docker). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
 
-> **On a work laptop**, fyisp looks up each service's name about once a minute through your employer's DNS resolver, YouTube and Netflix included. See [Privacy](#privacy) to leave those out, or run fyisp on a home machine on the same network.
+> **On a work laptop**, read [Privacy](#privacy) first: your employer's network sees fyisp's name lookups, YouTube and Netflix included.
 
 ### What happens next
 
@@ -73,7 +73,8 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 | `--profile NAMES` | What to measure, instead of the default. Combine profiles with commas to keep the default's checks, e.g. `default,streaming` or `default,clouds`; `all` is every target (about 1,400). `fyisp profiles` lists them ([What to measure](docs/PROFILES.md)). |
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
-| `--retention 30d` | Keeps less history (the default is 90 days). Worth it with `--profile all`, which takes a lot of disk. |
+| `--retention 30d` | Keeps less history, and so less disk (the default is 90 days). |
+| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, and the address each target resolved to, to [compare this site with another](docs/COMPARING-SITES.md). The [server command](#on-a-server-datacenter-or-office) turns it on. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
 
 ### Docker
@@ -82,8 +83,8 @@ On Linux, run the container on the host's network, so that fyisp sees your real 
 
 ```sh
 (umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
-docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
-  -e FYISP_ADMIN_TOKEN="$(cat fyisp-token)" ghcr.io/glueops/fyisp
+FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
 echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
 ```
 
@@ -104,6 +105,43 @@ Open the link the last command prints.
 **Docker Desktop (macOS, Windows)** runs containers inside a Linux VM: the gateway is the VM's virtual network and `--network host` means the VM's network, not your Mac's or PC's. The router and provider verdicts aren't about your real network there, so on macOS and Windows use the launcher instead.
 
 **The image** is published for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. It runs as an unprivileged user (65532) from a `scratch` image, keeps its data in the `/data` volume, and sets `FYISP_DATA_DIR=/data` and `FYISP_LISTEN=0.0.0.0:3000` (`--data-dir` and `--listen` after the image name override them). With a bridge network, ICMP works without extra capabilities on Docker 20.10+. With `--network host`, the host's `net.ipv4.ping_group_range` applies: if the log says ICMP is unavailable, see [ICMP permissions](#icmp-permissions).
+
+</details>
+
+### On a server (datacenter or office)
+
+To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker and every target of the catalog:
+
+```sh
+(umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
+IMAGE=ghcr.io/glueops/fyisp:v0.16.0 # x-release-please-version
+FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+```
+
+- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
+- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
+- **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
+- **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
+- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). To upgrade, see [Upgrading](#upgrading): it picks the latest tag, replaces the container and keeps the token and data; upgrade all sites together.
+- **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
+- **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
+
+<details>
+<summary>Without Docker: systemd</summary>
+
+Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token, the catalog and the path survey with a drop-in:
+
+```sh
+sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
+sudo mkdir -p /etc/systemd/system/fyisp.service.d
+printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' \
+  | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart fyisp
+```
+
+The unit already listens on `127.0.0.1:3000` only. The token is `sudo sed -n 's/^FYISP_ADMIN_TOKEN=//p' /etc/fyisp.env`. Export with `sudo fyisp export --data-dir /var/lib/fyisp …`.
 
 </details>
 
@@ -298,12 +336,13 @@ fyisp has no account and no telemetry, and its data stays on your machine. What 
   extends: [default]
   remove: [YouTube, Netflix]      # also possible: dev-GitHub, Dropbox, OneDrive, Teams-Relay
   ```
-- **On a work laptop**, keep the default (or the default without YouTube and Netflix, as above), and run any extra profiles on a home machine instead: a NAS, a Raspberry Pi or a family computer on the same network sees the same connection. If your employer manages the laptop, check its policy before running monitoring tools on it. `fyisp profiles default` lists the names fyisp looks up (Google Meet's TCP check goes to `meet.google.com`).
+- **On a work laptop**, keep the default (or the default without YouTube and Netflix, as above) and run any extra profiles on a home machine instead: a NAS, a Raspberry Pi or a family computer on the same network sees the same connection. If your employer manages the laptop, check its policy before running monitoring tools on it. `fyisp profiles default` lists the names fyisp looks up (Google Meet's TCP check goes to `meet.google.com`).
 - **Hosts traced on request.** *Investigate* traces any public host someone signed in to your dashboard types in (within its limits: 4 at once, about 10 minutes each). That host and the routers on the way see probes from your public IP address, and your DNS resolver sees the name looked up, about once a minute while the trace runs. Its hop numbers age out with the rest of the data, but the host's name stays in the database's index of series. No other service is involved.
 - **Wi-Fi or router.** To word Home's first box, fyisp reads whether its own connection is Wi-Fi (no network name, nothing about other devices) and whether the page is opened on the same machine, which is never stored, logged or returned (see [Wi-Fi or router?](docs/VERDICTS.md#wi-fi-or-router)). The connection type itself is in fyisp's log and in speed-test results.
 - **`--tunnel`** (off by default) connects to Cloudflare to publish the dashboard at a random `https://….trycloudflare.com` address (see [Remote access](#remote-access)). Cloudflare sees your public IP address and your machine's local address, and it decrypts the dashboard's traffic at its edge, the admin token included. Your DNS resolver sees the lookups of `api.trycloudflare.com` and Cloudflare's `argotunnel.com` names (or fyisp asks 1.1.1.1 over TLS), and the request for a tunnel goes through `HTTPS_PROXY` when that is set. The dashboard there needs the admin token, as everywhere. [SECURITY.md](SECURITY.md#what-leaves-your-machine) lists everything the tunnel sends.
 - **Storage tests** connect only to the S3-compatible endpoints you save as targets, over IPv4, and only when you ask: a check is one request, and a campaign sends rounds every few minutes (fresh connections, and with keys a download and an upload to your bucket under `fyisp-test/`) while it runs, and traceroutes the provider's address (as *Investigate* does) after the first round and after a connection failure. The endpoint sees your public IP address and your requests; your DNS resolver sees its name looked up for every fresh connection. Targets are kept in `storage-targets.json` in the data directory, readable by fyisp's user only, never in the database. Keys you enter are never shown again, logged or exported: a campaign holds them in memory until it ends, or a weekly schedule saves them in that file until it ends. Through `--tunnel` they pass through Cloudflare, so use keys scoped to a test bucket. [SECURITY.md](SECURITY.md#what-leaves-your-machine) has the details.
-- **A screenshot or export you send** shows what it says. Home and *What happened at …?* show no addresses; the Details charts, traceroutes and `fyisp export` include your router's and your provider's addresses.
+- **The path survey** (`--path-survey`, off by default; the server command turns it on) traces the TCP path to every target every 15 minutes, so every router on the way to them sees probes from your public IP address, as with *Investigate*. It keeps no address of your own network or your provider's (only "yours" and "provider", and the provider's network number), and no private address past it. Turning it off stops new rows; what it kept stays until `--retention` ages it out.
+- **A screenshot or export you send** shows what it says. Home and *What happened at …?* show no addresses; the Details charts and traceroutes include your router's and your provider's addresses. `fyisp export` lists your targets; its trace rows give the hop number, not the address; `--survey` gives the routers past your provider with their addresses, and `--addrs` the addresses your targets' names resolved to.
 
 ## ICMP permissions
 
@@ -352,20 +391,67 @@ Everything fyisp serves except the page itself needs the admin token: the dashbo
 
 ## Upgrading
 
-- **Launcher (`run.sh`, `run.ps1`):** stop fyisp and run the same command again. It always fetches the latest release.
-- **Docker:** pull the image and recreate the container; the volume keeps your data:
+fyisp does not update itself. The latest release is on the [releases page](https://github.com/glueops/fyisp/releases/latest); to see which one runs: `docker exec fyisp /fyisp version` (Docker), `fyisp version` (Linux, `~/.local/bin/fyisp version` on macOS, `& "$env:LOCALAPPDATA\Programs\fyisp\fyisp.exe" version` on Windows), or `version` in `api/status`. Each way below keeps your data, and your admin token where you set your own (the Docker commands, the macOS and Windows tasks, systemd with `/etc/fyisp.env`); otherwise a restart makes a new one.
 
-  ```sh
-  docker pull ghcr.io/glueops/fyisp
-  docker rm -f fyisp
-  ```
+**Launcher (`run.sh`, `run.ps1`).** Stop fyisp (Ctrl-C) and run the same command again: it always fetches the latest release. It makes a new admin token unless you pass your own with `--admin-token`.
 
-  Then run the same `docker run` command as before (see [Docker](#docker)), with the same options and token.
-- **Installed binary** ([Keep it running](#keep-it-running)): download the new `fyisp-<os>-<arch>`, verify it, replace the old file and restart the service.
+**Docker at home.** From the directory that holds `fyisp-token`: pull the latest image and, only once that worked, replace the container (the volume keeps your data):
+
+```sh
+tok=$(cat fyisp-token) && docker pull ghcr.io/glueops/fyisp && docker rm -f fyisp && \
+FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
+```
+
+Add any options you started it with after the image name, as before.
+
+**Docker on a server** (the [server command](#on-a-server-datacenter-or-office)). Pick the latest release's tag, pull it, then replace the container:
+
+```sh
+IMAGE=ghcr.io/glueops/fyisp:$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/glueops/fyisp/releases/latest | sed 's#.*/##')
+tok=$(cat ~/.fyisp-token) && echo "$IMAGE" && docker pull "$IMAGE" && docker rm -f fyisp && \
+FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+```
+
+Keep the options you started it with (a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
+
+**Linux (systemd).** Download and check the new binary, replace the old one and restart:
+
+```sh
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing && sudo install -m 0755 fyisp-linux-amd64 /usr/local/bin/fyisp && sudo systemctl restart fyisp
+```
+
+**macOS (LaunchAgent).** The same download as in [Keep it running](#macos-launchagent), without writing a new plist (which would make a new token), then a restart:
+
+```sh
+cd ~/.local/bin
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-darwin-arm64   # or -amd64 on an Intel Mac
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing && mv fyisp-darwin-arm64 fyisp && chmod +x fyisp && \
+launchctl kickstart -k gui/$(id -u)/io.github.glueops.fyisp
+```
+
+**Windows (Task Scheduler).** Download and check the new binary next to the old one, stop fyisp (Windows locks a running `fyisp.exe`), swap them and start it again:
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\fyisp"
+$url = "https://github.com/glueops/fyisp/releases/latest/download"
+Invoke-WebRequest "$url/fyisp-windows-amd64.exe" -OutFile "$dir\fyisp.new.exe"
+Invoke-WebRequest "$url/SHA256SUMS" -OutFile "$dir\SHA256SUMS"
+$want = (Select-String -Path "$dir\SHA256SUMS" -Pattern 'fyisp-windows-amd64\.exe$').Line.Split(' ')[0]
+if ((Get-FileHash "$dir\fyisp.new.exe").Hash -ne $want) { Remove-Item "$dir\fyisp.new.exe"; throw "checksum mismatch" }
+Stop-ScheduledTask -TaskName fyisp; Stop-Process -Name fyisp -ErrorAction SilentlyContinue; Start-Sleep 2
+Move-Item -Force "$dir\fyisp.new.exe" "$dir\fyisp.exe"
+Start-ScheduledTask -TaskName fyisp
+```
+
+(On an ARM PC, use `fyisp-windows-arm64.exe` in both places.)
 
 Upgrading keeps your history. When a release changes the database format, its first start upgrades the database in place and logs `store: database upgraded from schema vN to vM`. A database from before v0.11.0 is the exception: it is replaced with an empty one, and fyisp logs `store: database from an older fyisp (schema vN) replaced with a new empty one`. Going back to an older release never wipes data: fyisp refuses a database from a newer version and leaves it untouched. fyisp makes no backups of its database; to keep one, stop fyisp and copy `fyisp.db`, and `storage-targets.json` if you saved storage targets (`fyisp paths` shows where they are).
-
-fyisp does not update itself: run the launcher from a newer release, or replace the binary.
 
 ## Prometheus metrics
 
@@ -429,6 +515,7 @@ Add `--build-arg VERSION=v0.1.0` to stamp a version. Releases are built by [`.gi
 - [What to measure](docs/PROFILES.md): Home's tiles, the profiles, the Overview and the `--config` format
 - [How fyisp decides](docs/VERDICTS.md): Good, Slow, Choppy and Down, the verdicts, and Wi-Fi or router
 - [Call quality](docs/CALL-QUALITY.md), [Speed tests](docs/SPEED-TESTS.md) and [Storage tests](docs/STORAGE-TESTS.md)
+- [Comparing sites](docs/COMPARING-SITES.md): the path survey, and telling GeoDNS, anycast, routing and congestion apart
 - [API](docs/API.md): every route, the `/metrics` series and the `fyisp export` columns
 - [STUN servers' terms](docs/STUN-TERMS.md), [iperf3 servers' terms](docs/IPERF3-TERMS.md) and [a note for iperf3 operators](docs/OPERATORS.md)
 - [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md)
