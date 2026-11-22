@@ -199,7 +199,7 @@ The dashboard's controls:
 | Route | Host allowlist | Admin token | Same origin + CSRF | Other limits |
 |---|---|---|---|---|
 | GET the page (`/`) and `static/*` | yes | no | - | the same files for everyone |
-| GET `/api/*`, `/metrics` | yes | yes (401 without) | - | read-only |
+| GET `/api/*`, `/metrics` | yes | yes (401 without) | - | read-only; `api/compare.csv`, `api/survey.csv` and `api/addrs.csv` one at a time, at most 7 days and 64 MiB each |
 | POST `/api/speed/run`, `/api/speed/config`, `/api/speed/cancel` | yes | yes | yes | one queue, one test at a time |
 | POST `/api/investigate` (`target=` or `host=`, optional `mode=`, `rounds=` and `port=`) | yes | yes | yes | the safeguards above: public hosts only, one port per trace, 4 at once, 250 rounds |
 | POST `/api/storage/target/*`, `/api/storage/check`, `/api/storage/run`, `/api/storage/campaign/*` | yes | yes | yes | `application/json` bodies only; the address rules above; one check (or set of key tries) at a time, 20 s each; rounds wait in the speed-test queue; keys tried first, never returned |
@@ -223,7 +223,9 @@ your connection to others, send a screenshot of Home, which shows no
 addresses, or review a `fyisp export` first (it lists the targets you
 measure; traceroute rows give the hop number, not its address; `--survey`
 lists the routers past your provider with their addresses, never one in your
-own network or your provider's, and `--addrs` what your targets resolved to). Every
+own network or your provider's, and `--addrs` what your targets resolved to;
+`api/compare.csv`, `api/survey.csv` and `api/addrs.csv` serve the same data
+to the admin token's holder, for comparing sites). Every
 route but the page needs the admin token, wherever the dashboard is reached
 from: 127.0.0.1, your network, a reverse proxy or a tunnel. If you put a
 tunnel or reverse proxy in front of the dashboard (cloudflared, Tailscale

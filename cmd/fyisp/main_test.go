@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +100,22 @@ func TestLoopbackHostOnly(t *testing.T) {
 		if w.Code != code {
 			t.Errorf("Host %q = %d, want %d", host, w.Code, code)
 		}
+	}
+}
+
+// TestSiteFlag: --site (or FYISP_SITE) is a short label; anything else is
+// refused at the start.
+func TestSiteFlag(t *testing.T) {
+	t.Setenv("FYISP_SITE", "")
+	for site, ok := range map[string]bool{"mumbai-dc1": true, "a": true, "dc.2_b": true, "": true,
+		"-dc": false, "dc 1": false, "dc/1": false, "=cmd": false, strings.Repeat("a", 65): false} {
+		c, err := parseFlags([]string{"--site=" + site})
+		if (err == nil) != ok || ok && c.site != site {
+			t.Errorf("--site=%q: %q %v", site, c.site, err)
+		}
+	}
+	t.Setenv("FYISP_SITE", "dc9")
+	if c, err := parseFlags(nil); err != nil || c.site != "dc9" {
+		t.Errorf("FYISP_SITE: %q %v", c.site, err)
 	}
 }

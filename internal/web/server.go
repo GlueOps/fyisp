@@ -128,6 +128,9 @@ const (
 	routeStorage
 	routeStorageReport
 	routeProbes
+	routeCompareCSV
+	routeSurveyCSV
+	routeAddrsCSV
 )
 
 func lookup(rel string) route {
@@ -166,6 +169,12 @@ func lookup(rel string) route {
 		return routeStorage
 	case "api/storage/report":
 		return routeStorageReport
+	case "api/compare.csv":
+		return routeCompareCSV
+	case "api/survey.csv":
+		return routeSurveyCSV
+	case "api/addrs.csv":
+		return routeAddrsCSV
 	}
 	if _, ok := assets[rel]; ok && strings.HasPrefix(rel, "static/") {
 		return routeStatic
@@ -224,6 +233,8 @@ func (s *server) serveGET(w http.ResponseWriter, r *http.Request, rt route, rel 
 		s.serveStorage(w, r)
 	case routeStorageReport:
 		s.serveStorageReport(w, r)
+	case routeCompareCSV, routeSurveyCSV, routeAddrsCSV:
+		s.serveCompare(w, r, rt)
 	case routeTrace, routeTracePanel:
 		switch {
 		case s.d.Trace == nil:
@@ -273,11 +284,14 @@ func (s *server) rawStatus(ctx context.Context) Status {
 			st.Store.LastFlushErr = err.Error()
 		}
 	}
-	if st.Targets == 0 {
-		if p := s.d.Profile(); p != nil {
-			st.Targets = len(p.Targets)
-		}
+	p := s.d.Profile()
+	if st.Targets == 0 && p != nil {
+		st.Targets = len(p.Targets)
 	}
+	if p != nil {
+		st.Profile = p.Name
+	}
+	st.Site, st.Now = s.d.Site, s.now().UTC()
 	return st
 }
 

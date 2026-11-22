@@ -12,7 +12,26 @@ The path survey traces the TCP path to every TCP and HTTPS target of the profile
 
 ## What to export
 
-Pick a UTC window and export the same window from every site. From your laptop, with each server reachable over SSH (here `site-a` and `site-b`, running the server command):
+Pick a UTC window and get the same window from every site, over HTTP or over SSH.
+
+**Over HTTP**, with each site's address and admin token (an SSH tunnel per site, or another way to reach the dashboard): `api/status` first, to check every site runs the same `version` and `profile` with clocks in step (`now`), then `api/compare.csv`: a row per target, kind and hour with the connects' median and p95, the destination addresses and the networks past the provider ([API.md](API.md#get-apicomparecsv-apisurveycsv-and-apiaddrscsv)). Give each site a name with `--site` (the README's server command does), so every row says where it came from.
+
+```bash
+W="from=2026-12-01T13:00:00Z&to=2026-12-01T17:00:00Z"
+for s in site-a:3000 site-b:3001; do
+  n=${s%%:*} p=${s##*:}
+  curl -fsS --compressed -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token-$n)") \
+    "http://127.0.0.1:$p/api/compare.csv?$W" > "$n-compare.csv"
+done
+```
+
+Before the loop:
+- **Tokens:** copy each server's admin token to your laptop once, readable by you only: `(umask 077; ssh site-a cat .fyisp-token > ~/.fyisp-token-site-a)`.
+- **Tunnels:** one per site, each to its own port, e.g. `ssh -N -L 3001:127.0.0.1:3001 site-b` for a server started with `--listen=127.0.0.1:3001`: fyisp checks the port in the address you open, so each server needs its own.
+
+The window takes RFC 3339 times (or `now-6h` and unix milliseconds), and every hour that *starts* in it is included in full: 13:00 to 17:00 gives five hours, the last one 17:00 to 18:00. `--compressed` makes a week's file about 14 times smaller on the way. `api/survey.csv` and `api/addrs.csv` are the same files as the exports below, for a closer look: with `--profile all` a day of `survey.csv` is about 60 MB, so ask for a day, or name the targets (`targets=`).
+
+**Over SSH**, from your laptop (here `site-a` and `site-b`, running the server command):
 
 ```sh
 W="--from 2026-12-01T13:00:00Z --to 2026-12-01T17:00:00Z"

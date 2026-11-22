@@ -693,13 +693,7 @@ func (pd *panelData) CSV() []byte {
 }
 
 func (pd *panelData) csvName() string {
-	safe := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, pd.group.ID)
-	return fmt.Sprintf("fyisp-%s-%s-%s.csv", safe,
+	return fmt.Sprintf("fyisp-%s-%s-%s.csv", fileSafe(pd.group.ID),
 		pd.params.from.UTC().Format("20060102T150405Z"), pd.params.to.UTC().Format("20060102T150405Z"))
 }
 

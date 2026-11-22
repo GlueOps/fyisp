@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -105,6 +106,7 @@ type config struct {
 	allowHosts  hostList
 	tunnel      bool
 	pathSurvey  bool
+	site        string
 	pprofAddr   string
 	logFormat   string
 	logLevel    string
@@ -170,6 +172,7 @@ func parseFlags(args []string) (config, error) {
 	// No env default: flag's usage prints defaults, and this one is a secret.
 	fs.StringVar(&c.adminToken, "admin-token", "", "token the dashboard and its API require (at least 32 letters, digits or - . _ ~, e.g. from openssl rand -hex 16); change it to sign every browser out (default: $FYISP_ADMIN_TOKEN, else a new random one at each start, shown as a link in the log)")
 	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL", false), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
+	fs.StringVar(&c.site, "site", os.Getenv("FYISP_SITE"), "a name for this deployment, e.g. mumbai-dc1: shown in api/status and the comparison CSVs, to tell sites apart (letters, digits, . _ -; at most 64) (default: $FYISP_SITE)")
 	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY", false), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (fyisp export --survey); see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else false)")
 	fs.Var(&c.allowHosts, "allow-host", "extra `name` the dashboard may be opened as, e.g. nas.local or nas.local:3000 (repeatable or comma-separated)")
 	fs.StringVar(&c.pprofAddr, "pprof", "", "serve Go pprof on this loopback address (debugging)")
@@ -215,9 +218,15 @@ func parseFlags(args []string) (config, error) {
 			}
 		}
 	}
+	if c.site != "" && !siteRE.MatchString(c.site) {
+		return c, fmt.Errorf("--site %q: want 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit", c.site)
+	}
 	envProfiles(&c.profiles, c.configPath)
 	return c, nil
 }
+
+// siteRE is a valid --site: a short label for file names and CSV cells.
+var siteRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // envBool is an environment variable's boolean (unset: def; not a
 // boolean: false, which parseFlags rejects), for flags a container or NAS
@@ -391,6 +400,7 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 	deps := web.Deps{
 		Profile:       func() *model.Profile { return prof },
 		CustomProfile: c.configPath != "",
+		Site:          c.site,
 		Store:         st,
 		Status: func() web.Status {
 			s := web.Status{Version: version, Started: started, Caps: caps, Targets: len(warm.Only), Ready: warm.Ready()}
