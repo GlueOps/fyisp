@@ -348,7 +348,7 @@ fyisp never asks for admin rights. Only the Network path, ICMP traceroutes (Inve
 sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
 ```
 
-That lasts until a reboot; to keep it, also run `echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-fyisp-ping.conf`. fyisp checks for ICMP when it starts, so restart it afterwards (`docker restart fyisp` under Docker). Or carry on without ICMP: the services and the anycast resolvers are still measured over TCP, but the gateway and the ISP edge are not, so the verdict can no longer tell `lan` from `isp`. macOS and Windows need nothing.
+or carry on without ICMP: the services and the anycast resolvers are still measured over TCP, but the gateway and the ISP edge are not, so the verdict can no longer tell `lan` from `isp`. macOS and Windows need nothing.
 
 ## Remote access
 
@@ -414,7 +414,7 @@ FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --n
   -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey --site site-a
 ```
 
-Keep the options you started it with (this server's `--site`, a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`; on the bridge network, `-p 127.0.0.1:3000:3000` instead of `--network host` and `--listen`). To compare sites, upgrade every site to the same tag, the same day.
+Keep the options you started it with (this server's `--site`, a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
 
 **Linux (systemd).** Download and check the new binary (on ARM, `fyisp-linux-arm64` or `-armv7` in both places), replace the old one and restart:
 
@@ -495,7 +495,7 @@ To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md)
 
 <!-- x-release-please-start-version -->
 ```sh
-IMAGE=ghcr.io/glueops/fyisp:v0.18.2
+IMAGE=ghcr.io/glueops/fyisp:v0.18.3
 ```
 <!-- x-release-please-end -->
 
@@ -507,13 +507,12 @@ FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart u
 ```
 
 - **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
-- **ICMP:** some server installs set `net.ipv4.ping_group_range` to `1 0`, which leaves fyisp, and so the path survey, without ICMP under `--network host` (`api/status` shows the survey `unavailable`). Allow it for good as in [ICMP permissions](#icmp-permissions), or use Docker's [bridge network](#docker-nas-and-raspberry-pi): `-p 127.0.0.1:3000:3000` in place of both `--network host` and `--listen=127.0.0.1:3000`.
 - **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
 - **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
 - **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
 - **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). To upgrade, see [Upgrading](#upgrading): it picks the latest tag, replaces the container and keeps the token and data; upgrade all sites together.
 - **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
-- **Comparing sites:** export the same time window from each with `fyisp export` and run the script in [Comparing sites](docs/COMPARING-SITES.md), which reads those files. Over HTTP with the admin token, `api/compare.csv` and `api/survey.csv` give each target's hourly median, addresses and path ([API.md](docs/API.md#get-apicomparecsv-apisurveycsv-and-apiaddrscsv)).
+- **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
 
 <details>
 <summary>Without Docker: systemd</summary>
