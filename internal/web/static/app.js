@@ -22,7 +22,7 @@ import {
 import { Home, firstHome } from './home.js';
 import { PatternFilter, cleanPattern, MAX_PATTERN } from './filter.js';
 import { Speed } from './speed.js';
-import { mtrText, mtrJSON, mtrCSV, pingText, mtrCommand, pathpingCommand } from './invreport.js';
+import { mtrText, mtrJSON, mtrCSV, pingText, tracerouteText, mtrLabel, mtrCells, mtrCommand, pathpingCommand } from './invreport.js';
 
 const uPlot = /** @type {any} */ (window).uPlot;
 
@@ -1311,9 +1311,9 @@ const INV_SYNC = 'fyisp-inv';
 const INV_MORE = 'fyisp-inv-more'; // localStorage: the hops table shows P95, Javg and Jmax
 const INV_ROUNDS = 'fyisp-inv-rounds'; // localStorage: rounds of the next on-demand trace
 // Rounds an on-demand trace may run (POST api/investigate rounds=, 10 to 250), like mtr -c.
-const ROUNDS = [10, 100, 250];
-// The hops table, mtr's columns: [header, class, title]. MORE_COLS behind "More columns".
-const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'Router address and its reverse DNS name'], ['ASN', 'own', 'The network (autonomous system) the address belongs to'],
+const ROUNDS = [10, 100, 200, 250];
+// The hops table, mtr -rwz's columns: [header, class, title]. MORE_COLS behind "More columns"; Note last.
+const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'The network (AS number) and the router, as mtr -z shows them: name (address)'],
   ['Loss%', 'loss', 'Share of probes this hop did not answer'], ['Snt', 'num', 'Probes sent'], ['Last', 'num', 'Newest round-trip time (ms)'], ['Avg', 'num', 'Average round-trip time (ms)'],
   ['Best', 'num', 'Lowest round-trip time (ms)'], ['Wrst', 'num', 'Highest round-trip time (ms)'], ['StDev', 'num', 'Standard deviation of the round-trip times (ms)']];
 // Trace modes: the picker's label, and what a probe is, for the report and the copy.
@@ -1490,7 +1490,7 @@ class Investigate {
     this.modeSeg = h('div', { class: 'seg sm inv-modes', role: 'group', 'aria-label': 'Probe type' });
     this.modeNoteEl = h('p', { class: 'muted small inv-mode-note' });
     const saved = Number(storageGet(INV_ROUNDS));
-    this.rounds = ROUNDS.includes(saved) ? saved : 100;
+    this.rounds = ROUNDS.includes(saved) ? saved : 200;
     // Always usable: it applies to the next trace started here, whether of this target or a typed host.
     this.roundsSel = /** @type {HTMLSelectElement} */ (h('select', { class: 'inv-rounds', 'aria-label': 'Rounds per trace',
       title: 'How many rounds the next trace runs, like mtr -c: one round about every 2.5 s. A running trace keeps its own.' },
@@ -1511,6 +1511,9 @@ class Investigate {
     this.thead = h('thead');
     this.more = storageGet(INV_MORE) === '1';
     this.table = h('table', { class: 'hops' }, this.thead, this.tbody);
+    // Copy mtr text (the Hops header): its status line, and the fallback box when the clipboard is refused.
+    this.hopsSay = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
+    this.hopsTa = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '12', hidden: true, spellcheck: 'false', 'aria-label': 'mtr text' }));
     this.moreBtn = h('button', {
       class: 'btn ghost inv-more', type: 'button', text: 'More columns', 'aria-pressed': String(this.more),
       title: 'Also show P95, Javg (average jitter) and Jmax (worst jitter)',
@@ -1523,7 +1526,7 @@ class Investigate {
     this.repFmt = 'text';
     this.repSay = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     this.repText = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '12', spellcheck: 'false', 'aria-label': 'Report' }));
-    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)'], ['ping', 'Ping summary']];
+    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)'], ['ping', 'Ping summary'], ['traceroute', 'Traceroute']];
     this.repFmts = h('div', { class: 'seg', role: 'group', 'aria-label': 'Report format' }, ...fmts.map(([k, t]) => h('button', {
       type: 'button', text: t, 'data-fmt': k, 'aria-pressed': String(k === this.repFmt),
       onclick: () => { this.repFmt = k; this.repSay.textContent = ''; this.renderReport(); },
@@ -1553,7 +1556,10 @@ class Investigate {
       this.modeNoteEl,
       this.summary,
       h('section', { class: 'panel', 'aria-label': 'Hops' },
-        h('div', { class: 'panel-head' }, h('h2', { text: 'Hops' }), h('span', { class: 'meta', text: 'Click a hop to add it to the timeline' }), this.moreBtn),
+        h('div', { class: 'panel-head' }, h('h2', { text: 'Hops' }), h('span', { class: 'meta', text: 'Click a hop to add it to the timeline' }),
+          h('button', { class: 'btn', type: 'button', text: 'Copy mtr text', title: 'Copies this table as mtr -rwz text, for a ticket', onclick: () => this.copyMtr() }),
+          this.moreBtn, this.hopsSay),
+        this.hopsTa,
         h('div', { class: 'hops-wrap' }, this.table),
         this.report,
         this.runEl),
@@ -1573,10 +1579,10 @@ class Investigate {
         h('p', {}, h('b', { text: 'Loss that does not continue is not real. ' }),
           'Routers forward your traffic in hardware but answer trace probes in software, at low priority and often rate-limited. A middle hop that drops replies while the hops after it (and the destination) do not is just busy answering: your traffic passes through it fine.'),
         h('p', {}, h('b', { text: 'Real loss continues to the destination. ' }),
-          'When a hop loses 5% or more and the destination loses at least half as much, packets are really being dropped there, on that router or the link just before it. The first such hop, marked "loss starts here", is where to point the finger; if it is marked "your ISP", it is your ISP\'s network. Less loss than 5% shows only the number: too little to tell.'),
+          'When a hop loses 5% or more and the destination loses at least half as much, packets are really being dropped there, on that router or the link just before it. The first such hop, marked "loss starts here" in the Note column, is where to point the finger; if it is marked "your ISP", it is your ISP\'s network. Less loss than 5% shows only the number: too little to tell.'),
         h('p', {}, h('b', { text: 'The columns are mtr\'s. ' }),
-          'Loss% is the share of probes a hop did not answer, Snt the probes sent, Last the newest round-trip time, Avg, Best and Wrst the average, lowest and highest, and StDev how much they vary (in ms). More columns adds P95, Javg (the average difference between consecutive round trips, jitter) and Jmax (the largest one). While a trace runs, and for an hour after it, the numbers cover that trace; pick a range at the top for another. Over ranges longer than 48 hours fyisp keeps only hourly summaries, so Last, StDev and Jmax are blank.'),
-        h('p', { text: 'Latency works the same way: a spike at one middle hop that later hops do not show is the router being slow to reply, not slow to forward. The latency bar shows each hop\'s min–max range with a tick at the average.' })));
+          'Each row reads as in mtr -rwz: Host is the network\'s AS number and the router\'s name (address), ??? for one that never answers, and the Note column adds what mtr doesn\'t say (where loss is real, your ISP\'s hops, the network\'s name). Loss% is the share of probes a hop did not answer, Snt the probes sent, Last the newest round-trip time, Avg, Best and Wrst the average, lowest and highest, and StDev how much they vary (in ms). More columns adds P95, Javg (the average difference between consecutive round trips, jitter) and Jmax (the largest one). While a trace runs, and for an hour after it, the numbers cover that trace; pick a range at the top for another. Over ranges longer than 48 hours fyisp keeps only hourly summaries, so Last, StDev and Jmax are blank.'),
+        h('p', { text: 'Latency works the same way: a spike at one middle hop that later hops do not show is the router being slow to reply, not slow to forward. Under More columns, the latency bar shows each hop\'s min–max range with a tick at the average.' })));
     new ResizeObserver(() => this.resize()).observe(this.rttEl);
   }
 
@@ -1596,6 +1602,8 @@ class Investigate {
       this.runEl.replaceChildren();
       this.runFor = '';
       this.repText.value = '';
+      this.hopsTa.hidden = true;
+      this.hopsSay.textContent = '';
       this.summary.replaceChildren();
       this.changesEl.replaceChildren();
       this.chartLegend.replaceChildren();
@@ -1947,10 +1955,10 @@ class Investigate {
   renderTable() {
     const d = /** @type {TraceData} */ (this.data);
     const dest = this.dest();
-    const cols = this.more ? [...HOP_COLS, ...MORE_COLS] : HOP_COLS;
+    const cols = [...HOP_COLS, ...(this.more ? [...MORE_COLS, ['Latency (best–worst, avg)', 'bar', 'Each hop\'s best–worst range with a tick at the average']] : []),
+      ['Note', 'note', 'What fyisp adds to mtr: where real loss starts, routers that only rate-limit their replies, your ISP\'s hops']];
     this.table.classList.toggle('more', this.more);
-    this.thead.replaceChildren(h('tr', {}, ...[...cols, ['Latency (best–worst, avg)', 'bar', 'Each hop\'s best–worst range with a tick at the average']]
-      .map(([t, c, title]) => h('th', { class: c, scope: 'col', title, text: t }))));
+    this.thead.replaceChildren(h('tr', {}, ...cols.map(([t, c, title]) => h('th', { class: c, scope: 'col', title, text: t }))));
     const rows = [];
     // Bar scale: up to the largest max, but not beyond 1.5x the largest P95 (one outlier would squash every bar).
     let top = 0, p95 = 0;
@@ -1967,41 +1975,38 @@ class Investigate {
       const selected = x.hop === dest || this.sel.has(x.hop);
       const sw = h('span', { class: 'hsw' + (selected ? ' on' : '') });
       if (selected) sw.style.background = hopColor(x.hop);
-      const isp = !!(x.asn && d.isp_asn && x.asn === d.isp_asn);
-      const addr = h('td', { class: 'addr', 'data-label': 'Host' },
-        h('div', { class: 'ip' + (x.private || x.no_reply ? ' muted' : ''), text: hopAddr(x) },
-          x.private ? h('span', { class: 'masked', text: ' private' }) : null),
-        x.rdns ? h('div', { class: 'rdns', title: x.rdns, text: x.rdns }) : null);
-      const own = h('td', { class: 'own', 'data-label': 'ASN' },
-        hopOwner(x) ? h('span', { text: hopOwner(x) }) : h('span', { class: 'muted', text: x.private ? 'private network' : '—' }),
-        isp ? h('span', { class: 'isp', title: 'Same network (ASN) as your ISP\'s first public hop', text: 'your ISP' }) : null);
+      // The same strings as the mtr text (invreport.js), so the screen and a pasted report read alike.
+      const v = mtrCells(x);
+      const addr = h('td', { class: 'addr' + (x.private || x.no_reply ? ' muted' : ''), 'data-label': 'Host' },
+        first ? '' : '  ', mtrLabel(x), x.no_reply ? h('span', { class: 'sr-only', text: ' (no reply)' }) : null);
       // A router that never answers trace probes in this range is normal
-      // (many are configured that way): neutral "no reply", not 100% loss.
+      // (many are configured that way): its 100% is muted, and the note says so.
       const silent = x.n === 0 && x.lost > 0 && x.hop !== dest;
       const lossCell = h('td', { class: 'loss', 'data-label': 'Loss%' },
-        silent
-          ? h('span', { class: 'lv muted', title: 'This router does not answer trace probes. That is common and harmless: later hops still answer.', text: 'no reply' })
-          : h('span', { class: 'lv' + (x.loss >= 0.05 ? ' bad' : x.loss >= REAL_LOSS ? ' warn' : ''), text: x.n + x.lost ? fmtPct(x.loss) : '—' }));
-      if (silent) {
-        // nothing more to say
-      } else if (x === rs) {
-        lossCell.append(h('span', { class: 'lbadge real', title: 'Real loss starts here: this hop and the destination (at least half as much) lose probes, so packets are really dropped here or on the link before it.', text: 'loss starts here' }));
-      } else if (x.rate_limited && x.hop !== dest && !x.no_reply) {
-        lossCell.append(h('span', { class: 'lnote', title: 'Later hops do not show this loss: the router only answers trace probes at a limited rate. Your traffic is not affected.', text: 'not real — router rate-limiting' }));
+        h('span', { class: 'lv' + (silent ? ' muted' : x.loss >= 0.05 ? ' bad' : x.loss >= REAL_LOSS ? ' warn' : ''), text: v.loss }));
+      const notes = [];
+      if (silent) notes.push(h('span', { class: 'lnote', title: 'This router does not answer trace probes. That is common and harmless: later hops still answer.', text: 'no reply: harmless' }));
+      else if (x === rs) notes.push(h('span', { class: 'lbadge real', title: 'Real loss starts here: this hop and the destination (at least half as much) lose probes, so packets are really dropped here or on the link before it.', }, h('span', { 'aria-hidden': 'true', text: '◀ ' }), 'loss starts here'));
+      else if (x.rate_limited && x.hop !== dest && !x.no_reply) notes.push(h('span', { class: 'lnote', title: 'Later hops do not show this loss: the router only answers trace probes at a limited rate. Your traffic is not affected.', text: 'rate-limited, not real' }));
+      if (x.asn && d.isp_asn && x.asn === d.isp_asn) notes.push(h('span', { class: 'isp', title: 'Same network (ASN) as your ISP\'s first public hop', text: 'your ISP' }));
+      // The network's name (mtr -z prints only its number), or that the address is private.
+      const owner = x.owner || (x.private ? 'private network' : '');
+      if (owner) notes.push(h('span', { class: 'own muted', text: owner }));
+      const num = (/** @type {string} */ l, /** @type {string} */ t) => h('td', { class: 'num', 'data-label': l, text: t });
+      const more = (/** @type {string} */ l, /** @type {number|null} */ f) => h('td', { class: 'num', 'data-label': l, text: x.n > 0 ? fmtMs(f) : '—' });
+      const cells = [num('Snt', v.snt), num('Last', v.last), num('Avg', v.avg), num('Best', v.best), num('Wrst', v.wrst), num('StDev', v.stdev)];
+      if (this.more) {
+        const bar = h('div', { class: 'lbar' });
+        if (x.min != null && x.max != null) {
+          const rng = h('span', { class: 'rng' });
+          rng.style.left = pos(x.min);
+          rng.style.width = `calc(${pos(x.max)} - ${pos(x.min)} + 2px)`;
+          bar.append(rng);
+          if (x.mean != null) { const t = h('span', { class: 'avg' }); t.style.left = pos(x.mean); bar.append(t); }
+          if (x.max > top) bar.append(h('span', { class: 'over', title: `worst ${fmtMs(x.max)} ms`, text: '›' }));
+        }
+        cells.push(more('P95', x.p95), more('Javg', x.jitter), more('Jmax', x.jmax), h('td', { class: 'bar', 'data-label': 'Latency' }, bar));
       }
-      const bar = h('div', { class: 'lbar' });
-      if (x.min != null && x.max != null) {
-        const rng = h('span', { class: 'rng' });
-        rng.style.left = pos(x.min);
-        rng.style.width = `calc(${pos(x.max)} - ${pos(x.min)} + 2px)`;
-        bar.append(rng);
-        if (x.mean != null) { const t = h('span', { class: 'avg' }); t.style.left = pos(x.mean); bar.append(t); }
-        if (x.max > top) bar.append(h('span', { class: 'over', title: `worst ${fmtMs(x.max)} ms`, text: '›' }));
-      }
-      const num = (/** @type {string} */ l, /** @type {number|null} */ v) => h('td', { class: 'num', 'data-label': l, text: x.n > 0 ? fmtMs(v) : '—' });
-      const nums = [h('td', { class: 'num', 'data-label': 'Snt', text: String(x.n + x.lost) }),
-        num('Last', x.last), num('Avg', x.mean), num('Best', x.min), num('Wrst', x.max), num('StDev', x.stdev)];
-      if (this.more) nums.push(num('P95', x.p95), num('Javg', x.jitter), num('Jmax', x.jmax));
       const tr = h('tr', {
         class: (selected ? 'sel' : '') + (first ? '' : ' alt') + (x.hop === dest ? ' dest' : '') + (x === rs ? ' lstart' : ''),
         tabindex: '0', 'aria-selected': String(selected),
@@ -2009,15 +2014,24 @@ class Investigate {
         onclick: () => this.toggle(x.hop),
         onkeydown: (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.toggle(x.hop); } },
       },
-      h('td', { class: 'hn', 'data-label': '#' }, sw, first ? String(x.hop) : ''),
-      addr, own, lossCell, ...nums,
-      h('td', { class: 'bar', 'data-label': 'Latency' }, bar));
+      h('td', { class: 'hn', 'data-label': '#' }, sw, first ? `${x.hop}.` : ''),
+      addr, lossCell, ...cells, h('td', { class: 'note', 'data-label': 'Note' }, ...notes));
       rows.push(tr);
     }
-    if (!rows.length) rows.push(h('tr', {}, h('td', { class: 'none muted', colspan: String(cols.length + 1), text: 'No hops in this range.' })));
+    if (!rows.length) rows.push(h('tr', {}, h('td', { class: 'none muted', colspan: String(cols.length), text: 'No hops in this range.' })));
     this.tbody.replaceChildren(...rows);
+    // Copy mtr text's fallback box (no clipboard) follows the table, never shows older numbers.
+    if (!this.hopsTa.hidden) this.hopsTa.value = mtrText(this.reportInput());
     this.renderRun();
     this.renderReport();
+  }
+
+  /** Copy mtr text (the Hops header): the table as mtr -rwz text; says so when the trace is still running. */
+  async copyMtr() {
+    if (!this.data) return;
+    await copyText(mtrText(this.reportInput()), this.hopsTa, this.hopsSay);
+    const v = this.invState;
+    if (this.sessionOn() && v && v.state === 'running') this.hopsSay.textContent += ` The trace is still running: ${v.rounds_done} of ${v.rounds_max} rounds so far.`;
   }
 
   /** The report's input: the shown data, its range and the probe interval. */
@@ -2033,7 +2047,8 @@ class Investigate {
   reportText() {
     if (!this.data) return '';
     const r = this.reportInput();
-    return this.repFmt === 'json' ? mtrJSON(r) : this.repFmt === 'csv' ? mtrCSV(r) : this.repFmt === 'ping' ? pingText(r) : mtrText(r);
+    const f = { json: mtrJSON, csv: mtrCSV, ping: pingText, traceroute: tracerouteText }[this.repFmt] || mtrText;
+    return f(r);
   }
 
   /** Fills the report box while it is open. */

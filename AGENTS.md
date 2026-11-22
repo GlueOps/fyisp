@@ -106,7 +106,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 
 Settled choices; reviewers shouldn't re-raise them.
 
-- **Looking glass = Investigate, owner only** (2026-11-22): rounds 10 to 250 (`rounds=`, the dashboard's default 100) and a *Ping summary* report, for pasting into a datacenter ticket. No page or token for third parties (it would be the first route without the admin token, and only traces outward anyway), no TCP-only mode (NOCs expect ICMP), no port choice (fixed ports keep the no-port-scan promise in SECURITY.md).
+- **Looking glass = Investigate, owner only** (2026-11-22): rounds 10 to 250 (`rounds=`, the dashboard's default 200) and a *Ping summary* report, for pasting into a datacenter ticket. No page or token for third parties (it would be the first route without the admin token, and only traces outward anyway), no TCP-only mode (NOCs expect ICMP), no port choice (fixed ports keep the no-port-scan promise in SECURITY.md).
 - **`api/probes` "likely dropped"** is TCP probes of 1000 to 1400 ms: a SYN resent after a 1 s initial RTO. It is labelled as likely, not proven (nothing records the retransmit, and Windows may resend at 3 s, which is a timeout).
 - **`api/probes` has no gaps.** `api/panel`'s per-bucket `gap` already says when fyisp wasn't measuring.
 - **`api/probes` caps at the slowest 5000**, not the first, so a capped answer still shows the worst probes; `complete_above_ms` says what is complete.

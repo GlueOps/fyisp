@@ -2,7 +2,7 @@
 
 Part of the [API index](API.md).
 
-An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for the **rounds** asked for (10 to 250: about 25 s to 10.4 minutes; the dashboard asks for 100 unless you pick another, the API defaults to 250), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected.
+An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for the **rounds** asked for (10 to 250: about 25 s to 10.4 minutes; the dashboard asks for 200 unless you pick another, the API defaults to 250), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected.
 
 ## Probe types
 
@@ -138,4 +138,4 @@ Each hop in `GET api/trace`'s `hops` has two flags that say whether its loss is 
 
 Loss below 5% sets neither flag. The destination's own loss, when 5% or more, sets `loss_continues`.
 
-*Investigate* labels hops only from these flags: *loss starts here* on the first hop with `loss_continues` (one marker, not one per flagged hop), and *not real — router rate-limiting* on each hop before the destination with `rate_limited`. Other hops show only their loss. The summary names the first hop before the destination with `loss_continues` as where real loss starts. It blames the destination only when the destination has `loss_continues` and no hop before it does. When no hop is flagged but the destination loses probes, it says there is too little loss to tell where it starts.
+*Investigate* labels hops only from these flags: *◀ loss starts here* in the *Note* column of the first hop with `loss_continues` (one marker, not one per flagged hop), and *rate-limited, not real* on each hop before the destination with `rate_limited`. Other hops show only their loss. The summary names the first hop before the destination with `loss_continues` as where real loss starts. It blames the destination only when the destination has `loss_continues` and no hop before it does. When no hop is flagged but the destination loses probes, it says there is too little loss to tell where it starts.
