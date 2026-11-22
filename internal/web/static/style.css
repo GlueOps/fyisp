@@ -379,10 +379,12 @@ body.investigating #panels, body.investigating #verdict, body.investigating #out
 .inv { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 24px; }
 .inv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .inv-head h2 { margin: 0; font-size: 18px; }
-.inv-pick {
+.inv-pick, .inv-rounds, .inv-port {
   font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; max-width: min(320px, 100%);
 }
+.inv-port { width: 6.5em; }
+.inv-port[aria-invalid="true"] { border-color: var(--danger-border); }
 .inv-mode-note { margin: 6px 0 0; }
 .inv-host { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; }
 .inv-host input {
@@ -431,24 +433,26 @@ table.hops { width: 100%; border-collapse: collapse; font-size: 13px; font-varia
 .hops td.hn { white-space: nowrap; font-weight: 600; width: 3.5em; }
 .hsw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; border: 1px solid var(--axis); vertical-align: -1px; }
 .hsw.on { border-color: transparent; }
-.hops .addr { min-width: 0; max-width: 300px; }
-.hops .ip { white-space: nowrap; }
-.hops .masked { font-size: 11px; color: var(--muted); }
-.hops .rdns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
-.hops .own { white-space: nowrap; }
+/* mtr's look: one monospace line per hop, the host as mtr -z prints it. */
+.hops td.hn, .hops td.addr, .hops td.loss, .hops td.num { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.hops td.addr { white-space: pre; min-width: 0; }
+.hops td.note { min-width: 9em; }
+.hops td.note > * { display: inline-block; margin: 0 6px 0 0; white-space: nowrap; }
+.hops td.note .own { white-space: normal; }
 .isp {
-  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
   padding: 0 6px; border-radius: 999px; color: var(--ink);
   background: color-mix(in srgb, var(--v-isp) 16%, transparent); border: 1px solid color-mix(in srgb, var(--v-isp) 50%, transparent);
 }
-.hops td.loss { min-width: 7em; }
+.hops td.loss { text-align: right; white-space: nowrap; }
+.hops th.loss { text-align: right; }
 .hops .lv { font-weight: 600; }
 .hops .lv.warn { color: var(--v-service); }
 .hops .lv.bad { color: var(--v-isp); }
-.lnote, .lbadge { display: block; margin-top: 2px; font-size: 11px; line-height: 1.3; }
+.lnote, .lbadge, .hops .own { font-size: 11px; line-height: 1.3; }
 .lnote { color: var(--muted); font-style: italic; }
 .lbadge.real {
-  width: fit-content; font-weight: 600; padding: 0 6px; border-radius: 999px; color: var(--ink);
+  font-weight: 600; padding: 0 6px; border-radius: 999px; color: var(--ink);
   background: color-mix(in srgb, var(--v-isp) 18%, transparent); border: 1px solid color-mix(in srgb, var(--v-isp) 55%, transparent);
 }
 .hops td.bar { width: 22%; min-width: 120px; vertical-align: middle; }
@@ -497,31 +501,32 @@ table.hops { width: 100%; border-collapse: collapse; font-size: 13px; font-varia
   .inv-summary .is-head { font-size: 15px; }
   .hops thead { display: none; }
   table.hops, .hops tbody { display: block; }
+  /* Two lines per hop: "N. AS#### name (ip)", then Loss% and the times in mtr's order; More columns and the note below. */
   .hops tbody tr {
-    display: grid; grid-template-columns: 2.6em repeat(6, minmax(0, 1fr)); gap: 2px 6px;
-    padding: 8px 4px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 2.2em minmax(0, 1.5fr) repeat(6, minmax(0, 1fr)); gap: 2px 4px;
+    padding: 8px 2px; border-bottom: 1px solid var(--border);
   }
   .hops td { display: block; padding: 0; border: 0; }
-  .hops td.hn { grid-row: 1 / span 2; grid-column: 1; width: auto; }
-  .hops td.addr { grid-row: 1; grid-column: 2 / span 4; max-width: none; min-width: 0; }
-  .hops .ip, .hops .rdns { overflow: hidden; text-overflow: ellipsis; max-width: none; }
-  .hops td.loss { grid-row: 1 / span 2; grid-column: 6 / span 2; min-width: 0; text-align: right; }
-  .hops td.loss .lbadge.real { margin-left: auto; }
-  .hops td.own { grid-row: 2; grid-column: 2 / span 4; white-space: normal; font-size: 12px; color: var(--ink-2); }
-  .hops td.num { grid-row: 3; text-align: left; font-size: 12px; }
-  .hops td.num::before { content: attr(data-label); display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; }
-  /* Snt Last Avg Best Wrst StDev, then (More columns) P95 Javg Jmax */
-  .hops td:nth-child(5) { grid-column: 2; }
-  .hops td:nth-child(6) { grid-column: 3; }
-  .hops td:nth-child(7) { grid-column: 4; }
-  .hops td:nth-child(8) { grid-column: 5; }
-  .hops td:nth-child(9) { grid-column: 6; }
-  .hops td:nth-child(10) { grid-column: 7; }
-  .hops.more td:nth-child(11) { grid-row: 4; grid-column: 2; }
-  .hops.more td:nth-child(12) { grid-row: 4; grid-column: 3; }
-  .hops.more td:nth-child(13) { grid-row: 4; grid-column: 4; }
-  .hops td.bar { grid-row: 4; grid-column: 2 / -1; width: auto; min-width: 0; margin-top: 4px; }
-  .hops.more td.bar { grid-row: 5; }
+  .hops td.hn { grid-row: 1; grid-column: 1; width: auto; }
+  .hops td.addr { grid-row: 1; grid-column: 2 / -1; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .hops td.loss, .hops td.num { grid-row: 2; text-align: left; font-size: 10.5px; letter-spacing: -0.02em; }
+  .hops td.loss::before, .hops td.num::before { content: attr(data-label); display: block; font-family: system-ui, sans-serif; font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  /* Loss% Snt Last Avg Best Wrst StDev, then (More columns) P95 Javg Jmax and the bar */
+  .hops td:nth-child(3) { grid-column: 2; }
+  .hops td:nth-child(4) { grid-column: 3; }
+  .hops td:nth-child(5) { grid-column: 4; }
+  .hops td:nth-child(6) { grid-column: 5; }
+  .hops td:nth-child(7) { grid-column: 6; }
+  .hops td:nth-child(8) { grid-column: 7; }
+  .hops td:nth-child(9) { grid-column: 8; }
+  .hops.more td:nth-child(10) { grid-row: 3; grid-column: 2; }
+  .hops.more td:nth-child(11) { grid-row: 3; grid-column: 3; }
+  .hops.more td:nth-child(12) { grid-row: 3; grid-column: 4; }
+  .hops td.bar { grid-row: 3; grid-column: 5 / -1; width: auto; min-width: 0; align-self: end; }
+  .hops td.note { grid-row: 4; grid-column: 2 / -1; white-space: normal; }
+  .hops td.note:empty { display: none; }
+  .inv .panel-head { flex-wrap: wrap; align-items: center; }
+  .inv .panel-head .meta { order: 9; flex-basis: 100%; white-space: normal; }
   .hops td.none { grid-column: 1 / -1; }
   .c-row { grid-template-columns: auto minmax(0, 1fr); }
   .c-row .c-what { grid-column: 1 / -1; grid-row: 2; }

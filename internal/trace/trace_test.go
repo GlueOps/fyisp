@@ -961,3 +961,48 @@ func TestDestinationLossKeepsRoute(t *testing.T) {
 	}
 	t.Logf("%d of 300 destination probes lost, at most %d in a row", lost, longest)
 }
+
+// A host:name:port trace probes TCP to its own port.
+func TestRoundTCPPort(t *testing.T) {
+	f := newFakeNet("192.168.1.1", "62.1.1.1")
+	tr, st, _ := roundTracer(t, f, Options{})
+	st.mode, st.port = model.TraceTCP, 2222
+	tr.round(context.Background(), st, time.Unix(1_800_000_000, 0).UTC())
+	if len(f.log) == 0 {
+		t.Fatal("no probes")
+	}
+	for _, r := range f.log {
+		if r.tp != hops.TCP || r.port != 2222 {
+			t.Errorf("probe %+v: want TCP to 2222", r)
+		}
+	}
+}
+
+func TestHostPortOf(t *testing.T) {
+	for name, want := range map[string]struct {
+		host string
+		port int
+		ok   bool
+	}{
+		"host:example.com":       {"example.com", 0, true},
+		"host:example.com:22":    {"example.com", 22, true},
+		"host:192.0.2.1:65535":   {"192.0.2.1", 65535, true},
+		"host:example.com:0":     {"", 0, false},
+		"host:example.com:022":   {"", 0, false},
+		"host:example.com:65536": {"", 0, false},
+		"host:example.com:+22":   {"", 0, false},
+		"host::22":               {"", 0, false},
+		"Alpha":                  {"", 0, false},
+	} {
+		h, p, ok := model.HostPortOf(name)
+		if h != want.host || p != want.port || ok != want.ok {
+			t.Errorf("%s: %q %d %v", name, h, p, ok)
+		}
+	}
+	if n := model.HostPortTarget("example.com", 443); n != "host:example.com" {
+		t.Errorf("443: %s", n)
+	}
+	if n := model.HostPortTarget("example.com", 22); n != "host:example.com:22" {
+		t.Errorf("22: %s", n)
+	}
+}

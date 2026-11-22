@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -86,10 +87,13 @@ type HopStat struct {
 
 // Trace limits.
 const (
-	// InvestigateRounds is how many rounds one on-demand trace runs
-	// (about 10.4 minutes at InvestigateInterval); it then stops by
-	// itself. A POST while it runs doesn't extend it.
+	// InvestigateRounds is the most rounds one on-demand trace runs, and
+	// the default (about 10.4 minutes at InvestigateInterval); it then
+	// stops by itself. A POST while it runs doesn't extend it.
 	InvestigateRounds = 250
+	// MinInvestigateRounds is the fewest a POST may ask for: a shorter
+	// trace may not yet have found every hop of a long route.
+	MinInvestigateRounds = 10
 	// InvestigateInterval is the tracer's on-demand round interval
 	// (internal/trace.DefaultInvestigate), reported to the UI.
 	InvestigateInterval = 2500 * time.Millisecond
@@ -274,9 +278,9 @@ func (s *server) traced() map[string]bool {
 }
 
 // knownTarget reports a profile target name, or the name of a trace of a
-// host outside the profile (model.HostTarget, normalised).
+// host outside the profile (model.HostPortTarget, normalised).
 func (s *server) knownTarget(name string) bool {
-	if name == "" || len(name) > len(model.HostTargetPrefix)+maxHostLen {
+	if name == "" || len(name) > len(model.HostTargetPrefix)+maxHostLen+len(":65535") {
 		return false
 	}
 	if h, ok := model.HostOf(name); ok {
@@ -419,7 +423,11 @@ func (s *server) trace(ctx context.Context, target string, mode model.TraceMode,
 		}
 	}
 
-	out := &traceJSON{Target: target, Mode: mode.String(), Port: mode.Port(), Host: s.traceHost(target),
+	port := mode.Port()
+	if _, p, _ := model.HostPortOf(target); p != 0 && mode == model.TraceTCP {
+		port = p
+	}
+	out := &traceJSON{Target: target, Mode: mode.String(), Port: port, Host: s.traceHost(target),
 		Traced: mode == model.TraceICMP && s.traced()[target], IntervalMs: s.d.traceInterval().Milliseconds(),
 		From: p.from.UnixMilli(), To: p.to.UnixMilli(), Now: now.UnixMilli(), Hops: []hopStatJSON{}, Changes: changesJSON(r, changes),
 		Modes: s.d.Trace.Modes()}
@@ -677,11 +685,12 @@ type investigationJSON struct {
 type invSession struct {
 	inv     Investigation
 	started time.Time
+	rounds  int
 }
 
 func (se *invSession) json(k invKey) *investigationJSON {
 	n, ended := se.inv.Progress()
-	j := &investigationJSON{Target: k.target, Mode: k.mode.String(), State: "running", RoundsDone: n, RoundsMax: InvestigateRounds,
+	j := &investigationJSON{Target: k.target, Mode: k.mode.String(), State: "running", RoundsDone: n, RoundsMax: se.rounds,
 		IntervalMs: InvestigateInterval.Milliseconds(), StartedAt: se.started.UnixMilli()}
 	if !ended.IsZero() {
 		j.State, j.FinishedAt = "finished", ended.UnixMilli()
@@ -732,11 +741,11 @@ func (iv *Investigations) pruneLocked(now time.Time) {
 	}
 }
 
-// start starts k's trace for InvestigateRounds rounds. A running one is
-// returned as is (its count is not reset); a finished one starts afresh.
+// start starts k's trace for rounds rounds. A running one is returned as
+// is (neither its count nor its rounds change); a finished one starts afresh.
 // A new trace needs a free slot. Traces of one target with different modes
 // are different traces.
-func (iv *Investigations) start(src TraceSource, k invKey) (st *investigationJSON, created bool, err error) {
+func (iv *Investigations) start(src TraceSource, k invKey, rounds int) (st *investigationJSON, created bool, err error) {
 	iv.mu.Lock()
 	defer iv.mu.Unlock()
 	now := time.Now()
@@ -747,11 +756,11 @@ func (iv *Investigations) start(src TraceSource, k invKey) (st *investigationJSO
 	if e := iv.refusedLocked(); e != nil {
 		return nil, false, e
 	}
-	inv, err := src.Investigate(k.target, k.mode, InvestigateRounds)
+	inv, err := src.Investigate(k.target, k.mode, rounds)
 	if err != nil {
 		return nil, false, err
 	}
-	se := &invSession{inv: inv, started: now}
+	se := &invSession{inv: inv, started: now, rounds: rounds}
 	iv.m[k] = se
 	return se.json(k), true, nil
 }
@@ -814,11 +823,15 @@ const investigateBodyMax = 1 << 10
 type invRequest struct {
 	target, host string
 	mode         model.TraceMode
+	rounds       int
+	port         int // TCP destination port (0: none asked; 443)
 }
 
 // investigateRequest applies the request checks: POST, no body, exactly
-// one target or host parameter and at most one mode (icmp, tcp, udp;
-// default icmp). It writes the refusal and returns false on failure. The
+// one target or host parameter, at most one mode (icmp, tcp, udp;
+// default icmp), at most one rounds (MinInvestigateRounds to
+// InvestigateRounds; default InvestigateRounds) and, for tcp, at most one
+// port (1 to 65535; default 443). It writes the refusal and returns false on failure. The
 // response is never cached. The handler then checks the origin, and
 // investigate the target name or the host, and the mode.
 func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (invRequest, bool) {
@@ -843,8 +856,8 @@ func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (inv
 		return invRequest{}, false
 	}
 	q := r.URL.Query()
-	if err := checkParams(q, "target", "host", "mode"); err != nil || len(q["target"])+len(q["host"]) != 1 || q.Get("target")+q.Get("host") == "" {
-		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "want exactly one target or host parameter, and at most one mode", 0)
+	if err := checkParams(q, "target", "host", "mode", "rounds", "port"); err != nil || len(q["target"])+len(q["host"]) != 1 || q.Get("target")+q.Get("host") == "" {
+		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "want exactly one target or host parameter, and at most one mode, rounds and port", 0)
 		return invRequest{}, false
 	}
 	mode, err := parseMode(q)
@@ -852,7 +865,25 @@ func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (inv
 		writeInvErr(w, r, http.StatusBadRequest, "bad_request", err.Error(), 0)
 		return invRequest{}, false
 	}
-	return invRequest{target: q.Get("target"), host: q.Get("host"), mode: mode}, true
+	rounds := InvestigateRounds
+	if _, ok := q["rounds"]; ok {
+		n, err := strconv.Atoi(q.Get("rounds"))
+		if err != nil || n < MinInvestigateRounds || n > InvestigateRounds {
+			writeInvErr(w, r, http.StatusBadRequest, "bad_request", fmt.Sprintf("rounds must be %d to %d", MinInvestigateRounds, InvestigateRounds), 0)
+			return invRequest{}, false
+		}
+		rounds = n
+	}
+	port := 0
+	if _, ok := q["port"]; ok {
+		n, err := strconv.Atoi(q.Get("port"))
+		if err != nil || n < 1 || n > 65535 {
+			writeInvErr(w, r, http.StatusBadRequest, "bad_request", "port must be 1 to 65535, with mode=tcp", 0)
+			return invRequest{}, false
+		}
+		port = n
+	}
+	return invRequest{target: q.Get("target"), host: q.Get("host"), mode: mode, rounds: rounds, port: port}, true
 }
 
 // ---------- hosts outside the profile ----------
@@ -953,8 +984,26 @@ func modeAvailable(src TraceSource, mode model.TraceMode) bool {
 // target and the error, never the client.
 func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invRequest) {
 	target, mode := q.target, q.mode
-	if h, ok := model.HostOf(target); ok && q.host == "" {
+	if h, port, ok := model.HostPortOf(target); ok && q.host == "" {
 		q.host = h
+		if q.port == 0 {
+			q.port = port
+		}
+	}
+	if q.port != 0 && mode != model.TraceTCP {
+		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "a port is for TCP traces only", 0)
+		return
+	}
+	// A profile target to another port is a trace of its host to that port.
+	if q.port != 0 && q.port != model.TraceTCPPort && q.host == "" {
+		if !s.knownTarget(target) {
+			writeInvErr(w, r, http.StatusNotFound, "unknown_target", "unknown target", 0)
+			return
+		}
+		if q.host = s.traceHost(target); q.host == "" {
+			writeInvErr(w, r, http.StatusBadRequest, "bad_request", "this target has no host to trace to another port", 0)
+			return
+		}
 	}
 	if q.host != "" {
 		h, err := normHost(q.host)
@@ -962,7 +1011,7 @@ func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invReques
 			writeInvErr(w, r, http.StatusBadRequest, "bad_host", err.Error(), 0)
 			return
 		}
-		target = model.HostTarget(h)
+		target = model.HostPortTarget(h, q.port)
 	} else if !s.knownTarget(target) {
 		writeInvErr(w, r, http.StatusNotFound, "unknown_target", "unknown target", 0)
 		return
@@ -986,7 +1035,7 @@ func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invReques
 			return
 		}
 	}
-	st, _, err := s.inv.start(s.d.Trace, k)
+	st, _, err := s.inv.start(s.d.Trace, k, q.rounds)
 	switch {
 	case errors.As(err, &ie):
 		s.d.log().Debug("investigate refused", "target", target, "code", ie.code)
@@ -1003,7 +1052,7 @@ func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invReques
 // serveInvestigate answers POST /api/investigate?target=|host= (the admin
 // token, authorized): same origin and the CSRF token, then the trace limits
 // (profile targets, or hosts whose every address is public;
-// InvestigateRounds, MaxInvestigations and the tracer's per-router cap).
+// at most InvestigateRounds rounds, MaxInvestigations and the tracer's per-router cap).
 func (h *localHandler) serveInvestigate(w http.ResponseWriter, r *http.Request) {
 	q, ok := h.investigateRequest(w, r)
 	if !ok {

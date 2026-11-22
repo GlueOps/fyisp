@@ -106,7 +106,8 @@ const lineSamples = 20
 // its /24).
 func storageTrace(tr trace.Tracer, path func() netinfo.Path) func(ctx context.Context, ip netip.Addr) ([]model.StorageHop, uint32, bool) {
 	return func(ctx context.Context, ip netip.Addr) ([]model.StorageHop, uint32, bool) {
-		if !netinfo.Traceable(ip) || !tr.Running() {
+		// IPv4 only, as the tracer: a trace name's host never holds a colon (model.HostPortOf).
+		if !ip.Is4() || !netinfo.Traceable(ip) || !tr.Running() {
 			return nil, 0, false
 		}
 		target := model.HostTarget(ip.String())

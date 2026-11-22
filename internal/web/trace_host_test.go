@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,13 +149,19 @@ func TestInvestigateHost(t *testing.T) {
 		"host=::1":                                  {400, "bad_host"},
 		"host=2606:4700::1111":                      {400, "bad_host"},
 		"host=" + strings.Repeat("a.", 126) + "com": {400, "bad_host"}, // over 253 characters
-		// the request shape: one target or host; TCP goes to port 443 only
-		"host=":                               {400, "bad_request"},
-		"host=example.com&target=Alpha":       {400, "bad_request"},
-		"host=example.com&host=example.org":   {400, "bad_request"},
-		"host=example.com&mode=tcp&port=22":   {400, "bad_request"},
-		"host=example.com&mode=tcp&port=8080": {400, "bad_request"},
-		"host=example.com&mode=sctp":          {400, "bad_request"},
+		// the request shape: one target or host; a port only for TCP, 1 to 65535
+		"host=":                                     {400, "bad_request"},
+		"host=example.com&target=Alpha":             {400, "bad_request"},
+		"host=example.com&host=example.org":         {400, "bad_request"},
+		"host=example.com&mode=sctp":                {400, "bad_request"},
+		"host=example.com&port=22":                  {400, "bad_request"},
+		"host=example.com&mode=udp&port=22":         {400, "bad_request"},
+		"host=example.com&mode=tcp&port=0":          {400, "bad_request"},
+		"host=example.com&mode=tcp&port=65536":      {400, "bad_request"},
+		"host=example.com&mode=tcp&port=x":          {400, "bad_request"},
+		"host=example.com&mode=tcp&port=22&port=23": {400, "bad_request"},
+		"target=host:example.com:22":                {400, "bad_request"}, // a port name, ICMP
+		"target=host:example.com:22&mode=udp":       {400, "bad_request"},
 	}
 	for q, want := range refused {
 		code, r := post(q)
@@ -206,5 +213,61 @@ func TestInvestigateHostBusyNoLookup(t *testing.T) {
 	w := do(h, "POST", "/api/investigate?host=example.com", good)
 	if w.Code != 429 || !strings.Contains(w.Body.String(), `"busy"`) || dns.lookups() != 0 {
 		t.Errorf("busy host = %d %s, %d lookups", w.Code, w.Body, dns.lookups())
+	}
+}
+
+// TestInvestigatePort: port= traces TCP to another port as its own trace
+// (host:name:port), a profile target's host included; 443 keeps the plain name.
+func TestInvestigatePort(t *testing.T) {
+	d, ft, _ := traceFixture(t)
+	d.Resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("93.184.215.14")}, nil
+	}
+	h := Local(d, LocalOptions{Addr: "127.0.0.1:3000", CSRFToken: "tok123"})
+	good := map[string]string{"Host": "127.0.0.1:3000", "Origin": "http://127.0.0.1:3000", "Sec-Fetch-Site": "same-origin", HeaderCSRF: "tok123"}
+	post := func(q string) investigationJSON {
+		t.Helper()
+		w := do(h, "POST", "/api/investigate?"+q, good)
+		var r investigationJSON
+		_ = json.Unmarshal(w.Body.Bytes(), &r)
+		if w.Code != 200 {
+			t.Fatalf("%s = %d %s", q, w.Code, w.Body.String())
+		}
+		return r
+	}
+	for q, want := range map[string]string{
+		"host=example.com&mode=tcp&port=22":     "host:example.com:22",
+		"host=example.com&mode=tcp&port=443":    "host:example.com",
+		"target=host:example.com:8443&mode=tcp": "host:example.com:8443",
+		"target=Beta&mode=tcp&port=2222":        "host:beta.example.com:2222",
+	} {
+		if r := post(q); r.Target != want || r.Mode != "tcp" {
+			t.Errorf("%s: %+v, want %s", q, r, want)
+		}
+	}
+	// A profile target to 443 stays itself (once a slot is free).
+	for _, se := range ft.sessions {
+		se.advance(InvestigateRounds)
+	}
+	if r := post("target=Alpha&mode=tcp&port=443"); r.Target != "Alpha" {
+		t.Errorf("Alpha to 443: %+v", r)
+	}
+	// The trace view reads a port's trace by its name, with its port.
+	var tr traceResp
+	w := do(h, "GET", "/api/trace?target=host:example.com:22&mode=tcp", good)
+	_ = json.Unmarshal(w.Body.Bytes(), &tr)
+	if w.Code != 200 || tr.Port != 22 || tr.Host != "example.com" {
+		t.Errorf("trace host:example.com:22 = %d %s", w.Code, w.Body.String())
+	}
+	// Names that aren't canonical aren't traces.
+	for _, n := range []string{"host:example.com:443", "host:example.com:022", "host:example.com:0", "host:example.com:70000"} {
+		if w := do(h, "GET", "/api/trace?target="+url.QueryEscape(n)+"&mode=tcp", good); w.Code != 404 {
+			t.Errorf("GET %s = %d, want 404", n, w.Code)
+		}
+	}
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	if len(ft.started) != 5 {
+		t.Errorf("started %v", ft.started)
 	}
 }

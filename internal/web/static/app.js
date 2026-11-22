@@ -22,7 +22,7 @@ import {
 import { Home, firstHome } from './home.js';
 import { PatternFilter, cleanPattern, MAX_PATTERN } from './filter.js';
 import { Speed } from './speed.js';
-import { mtrText, mtrJSON, mtrCSV, mtrCommand, pathpingCommand } from './invreport.js';
+import { mtrText, mtrJSON, mtrCSV, pingText, tracerouteText, mtrLabel, mtrCells, mtrCommand, pathpingCommand, PORT } from './invreport.js';
 
 const uPlot = /** @type {any} */ (window).uPlot;
 
@@ -1309,23 +1309,26 @@ const INV_REFRESH_MS = 5000;
 const REAL_LOSS = 0.01; // loss below 1% is noise (colours only: the server labels a hop's loss)
 const INV_SYNC = 'fyisp-inv';
 const INV_MORE = 'fyisp-inv-more'; // localStorage: the hops table shows P95, Javg and Jmax
-// The hops table, mtr's columns: [header, class, title]. MORE_COLS behind "More columns".
-const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'Router address and its reverse DNS name'], ['ASN', 'own', 'The network (autonomous system) the address belongs to'],
+const INV_ROUNDS = 'fyisp-inv-rounds'; // localStorage: rounds of the next on-demand trace
+// Rounds an on-demand trace may run (POST api/investigate rounds=, 10 to 250), like mtr -c.
+const ROUNDS = [10, 100, 200, 250];
+// The hops table, mtr -rwz's columns: [header, class, title]. MORE_COLS behind "More columns"; Note last.
+const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'The network (AS number) and the router, as mtr -z shows them: name (address)'],
   ['Loss%', 'loss', 'Share of probes this hop did not answer'], ['Snt', 'num', 'Probes sent'], ['Last', 'num', 'Newest round-trip time (ms)'], ['Avg', 'num', 'Average round-trip time (ms)'],
   ['Best', 'num', 'Lowest round-trip time (ms)'], ['Wrst', 'num', 'Highest round-trip time (ms)'], ['StDev', 'num', 'Standard deviation of the round-trip times (ms)']];
 // Trace modes: the picker's label, and what a probe is, for the report and the copy.
-const MODE_LABEL = { icmp: 'ICMP', tcp: 'TCP 443', udp: 'UDP' };
+const MODE_LABEL = { icmp: 'ICMP', tcp: 'TCP', udp: 'UDP' };
 /** Why a mode is off, from /api/trace's reason code. @param {TraceMode} m */
 function modeReason(m) {
   const what = m.mode === 'udp' ? 'UDP' : m.mode === 'icmp' ? 'ICMP' : 'TCP';
   if (m.reason === 'windows_firewall') return `${what} traces aren’t available on Windows: its firewall drops the routers’ replies to them.`;
   return `${what} traces aren’t available on this system.`;
 }
-/** What a mode's probes are, in a sentence. @param {TraceMode|undefined} m */
-function modeNote(m) {
+/** What a mode's probes are, in a sentence (port: TCP's). @param {TraceMode|undefined} m @param {number} [port] */
+function modeNote(m, port) {
   if (!m || m.mode === 'icmp') return '';
-  if (m.mode === 'tcp' && m.hops_via === 'icmp') return 'On Windows the routers are found with ICMP (its firewall drops their replies to TCP); each probe is an ICMP echo and a TCP SYN to port 443 with the same TTL, and the destination answers the TCP one.';
-  if (m.mode === 'tcp') return 'TCP SYNs to port 443, like a web connection; each is closed with a reset, so no connection is left open.';
+  if (m.mode === 'tcp' && m.hops_via === 'icmp') return `On Windows the routers are found with ICMP (its firewall drops their replies to TCP); each probe is an ICMP echo and a TCP SYN to port ${port} with the same TTL, and the destination answers the TCP one.`;
+  if (m.mode === 'tcp') return `TCP SYNs to port ${port}${port === PORT.tcp ? ', like a web connection' : ''}; each is closed with a reset, so no connection is left open.`;
   return `UDP datagrams to port ${m.port || 33434}; the destination answers with "port unreachable".`;
 }
 const MORE_COLS = [['P95', 'num', '95th percentile round-trip time (ms)'], ['Javg', 'num', 'Jitter: average difference between consecutive round-trip times (ms)'],
@@ -1343,6 +1346,11 @@ function targetInfo(/** @type {string} */ name) { return allTargets.find((t) => 
 const HOST_PREFIX = 'host:';
 /** The host of a "host:" trace name, else ''. @param {string} name */
 function hostOf(name) { return name.startsWith(HOST_PREFIX) ? name.slice(HOST_PREFIX.length) : ''; }
+/** A host trace's host and TCP port (host:example.com:22; port 0 when the name has none). @param {string} name */
+function hostPortOf(name) {
+  const s = hostOf(name), m = /^(.+):(\d+)$/.exec(s);
+  return m ? { host: m[1], port: Number(m[2]) } : { host: s, port: 0 };
+}
 
 /** The target the path panel and path-level incidents open: a traced anycast target, else any traced one. */
 function defaultTraceTarget() {
@@ -1425,6 +1433,9 @@ function invError(e) {
   return e.status === 429 ? `Too many traces right now. Try again ${invWait(e)}.` : 'Couldn’t start the trace. Try again.';
 }
 
+/** About how long n rounds of an on-demand trace take (2.5 s each). @param {number} n */
+const roundsTime = (/** @type {number} */ n) => `about ${fmtDur(n * 2500)}`;
+
 /** Headers of POST api/investigate: the CSRF token. */
 function invHeaders() { return { 'X-FYISP-Token': TOKEN }; }
 
@@ -1482,7 +1493,24 @@ class Investigate {
     this.statusEl = h('span', { class: 'inv-status' });
     this.mode = 'icmp';
     this.modeSeg = h('div', { class: 'seg sm inv-modes', role: 'group', 'aria-label': 'Probe type' });
+    // TCP's destination port: 443 unless asked; another one traces the host to that port (host:name:port).
+    // A text box, not type=number: its arrows would start a trace at every step. It changes on Enter or blur.
+    this.port = PORT.tcp;
+    this.portFrom = { target: '', host: '' }; // the profile target a port's trace was started from, to go back to on 443
+    this.portIn = /** @type {HTMLInputElement} */ (h('input', { class: 'inv-port', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '5',
+      autocomplete: 'off', 'aria-label': 'TCP port', 'aria-describedby': 'inv-host-err', title: 'The TCP port to trace to (443 unless you pick another). Press Enter to trace it.', value: String(PORT.tcp) }));
+    this.portIn.addEventListener('change', () => this.setPort());
+    // Enter again after a refusal retries (no change event when the value is the same).
+    this.portIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.setPort(); });
     this.modeNoteEl = h('p', { class: 'muted small inv-mode-note' });
+    const saved = Number(storageGet(INV_ROUNDS));
+    this.rounds = ROUNDS.includes(saved) ? saved : 200;
+    // Always usable: it applies to the next trace started here, whether of this target or a typed host.
+    this.roundsSel = /** @type {HTMLSelectElement} */ (h('select', { class: 'inv-rounds', 'aria-label': 'Rounds per trace',
+      title: 'How many rounds the next trace runs, like mtr -c: one round about every 2.5 s. A running trace keeps its own.' },
+      ...ROUNDS.map((n) => h('option', { value: String(n), text: `${n} rounds (${roundsTime(n)})` }))));
+    this.roundsSel.value = String(this.rounds);
+    this.roundsSel.addEventListener('change', () => { this.rounds = Number(this.roundsSel.value); storageSet(INV_ROUNDS, this.roundsSel.value); this.renderStatus(); this.renderSummaryIfEmpty(); });
     // Any public host, traced with the picked probe type (POST api/investigate?host=).
     this.hostIn = /** @type {HTMLInputElement} */ (h('input', {
       type: 'text', name: 'host', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', maxlength: '253',
@@ -1497,6 +1525,9 @@ class Investigate {
     this.thead = h('thead');
     this.more = storageGet(INV_MORE) === '1';
     this.table = h('table', { class: 'hops' }, this.thead, this.tbody);
+    // Copy mtr text (the Hops header): its status line, and the fallback box when the clipboard is refused.
+    this.hopsSay = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
+    this.hopsTa = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '12', hidden: true, spellcheck: 'false', 'aria-label': 'mtr text' }));
     this.moreBtn = h('button', {
       class: 'btn ghost inv-more', type: 'button', text: 'More columns', 'aria-pressed': String(this.more),
       title: 'Also show P95, Javg (average jitter) and Jmax (worst jitter)',
@@ -1509,7 +1540,7 @@ class Investigate {
     this.repFmt = 'text';
     this.repSay = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     this.repText = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '12', spellcheck: 'false', 'aria-label': 'Report' }));
-    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)']];
+    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)'], ['ping', 'Ping summary'], ['traceroute', 'Traceroute']];
     this.repFmts = h('div', { class: 'seg', role: 'group', 'aria-label': 'Report format' }, ...fmts.map(([k, t]) => h('button', {
       type: 'button', text: t, 'data-fmt': k, 'aria-pressed': String(k === this.repFmt),
       onclick: () => { this.repFmt = k; this.repSay.textContent = ''; this.renderReport(); },
@@ -1534,12 +1565,15 @@ class Investigate {
       this.invSay,
       h('div', { class: 'inv-head' },
         h('button', { class: 'btn', type: 'button', text: '← Dashboard', onclick: closeInvestigate }),
-        this.titleEl, this.picker, this.modeSeg, this.statusEl),
+        this.titleEl, this.picker, this.modeSeg, this.portIn, this.roundsSel, this.statusEl),
       this.hostForm,
       this.modeNoteEl,
       this.summary,
       h('section', { class: 'panel', 'aria-label': 'Hops' },
-        h('div', { class: 'panel-head' }, h('h2', { text: 'Hops' }), h('span', { class: 'meta', text: 'Click a hop to add it to the timeline' }), this.moreBtn),
+        h('div', { class: 'panel-head' }, h('h2', { text: 'Hops' }), h('span', { class: 'meta', text: 'Click a hop to add it to the timeline' }),
+          h('button', { class: 'btn', type: 'button', text: 'Copy mtr text', title: 'Copies this table as mtr -rwz text, for a ticket', onclick: () => this.copyMtr() }),
+          this.moreBtn, this.hopsSay),
+        this.hopsTa,
         h('div', { class: 'hops-wrap' }, this.table),
         this.report,
         this.runEl),
@@ -1559,10 +1593,10 @@ class Investigate {
         h('p', {}, h('b', { text: 'Loss that does not continue is not real. ' }),
           'Routers forward your traffic in hardware but answer trace probes in software, at low priority and often rate-limited. A middle hop that drops replies while the hops after it (and the destination) do not is just busy answering: your traffic passes through it fine.'),
         h('p', {}, h('b', { text: 'Real loss continues to the destination. ' }),
-          'When a hop loses 5% or more and the destination loses at least half as much, packets are really being dropped there, on that router or the link just before it. The first such hop, marked "loss starts here", is where to point the finger; if it is marked "your ISP", it is your ISP\'s network. Less loss than 5% shows only the number: too little to tell.'),
+          'When a hop loses 5% or more and the destination loses at least half as much, packets are really being dropped there, on that router or the link just before it. The first such hop, marked "loss starts here" in the Note column, is where to point the finger; if it is marked "your ISP", it is your ISP\'s network. Less loss than 5% shows only the number: too little to tell.'),
         h('p', {}, h('b', { text: 'The columns are mtr\'s. ' }),
-          'Loss% is the share of probes a hop did not answer, Snt the probes sent, Last the newest round-trip time, Avg, Best and Wrst the average, lowest and highest, and StDev how much they vary (in ms). More columns adds P95, Javg (the average difference between consecutive round trips, jitter) and Jmax (the largest one). While a trace runs, and for an hour after it, the numbers cover that trace; pick a range at the top for another. Over ranges longer than 48 hours fyisp keeps only hourly summaries, so Last, StDev and Jmax are blank.'),
-        h('p', { text: 'Latency works the same way: a spike at one middle hop that later hops do not show is the router being slow to reply, not slow to forward. The latency bar shows each hop\'s min–max range with a tick at the average.' })));
+          'Each row reads as in mtr -rwz: Host is the network\'s AS number and the router\'s name (address), ??? for one that never answers, and the Note column adds what mtr doesn\'t say (where loss is real, your ISP\'s hops, the network\'s name). Loss% is the share of probes a hop did not answer, Snt the probes sent, Last the newest round-trip time, Avg, Best and Wrst the average, lowest and highest, and StDev how much they vary (in ms). More columns adds P95, Javg (the average difference between consecutive round trips, jitter) and Jmax (the largest one). While a trace runs, and for an hour after it, the numbers cover that trace; pick a range at the top for another. Over ranges longer than 48 hours fyisp keeps only hourly summaries, so Last, StDev and Jmax are blank.'),
+        h('p', { text: 'Latency works the same way: a spike at one middle hop that later hops do not show is the router being slow to reply, not slow to forward. Under More columns, the latency bar shows each hop\'s min–max range with a tick at the average.' })));
     new ResizeObserver(() => this.resize()).observe(this.rttEl);
   }
 
@@ -1582,6 +1616,8 @@ class Investigate {
       this.runEl.replaceChildren();
       this.runFor = '';
       this.repText.value = '';
+      this.hopsTa.hidden = true;
+      this.hopsSay.textContent = '';
       this.summary.replaceChildren();
       this.changesEl.replaceChildren();
       this.chartLegend.replaceChildren();
@@ -1594,8 +1630,13 @@ class Investigate {
     this.fillPicker();
     this.titleEl.textContent = 'Investigate';
     const t = targetInfo(target);
-    const host = hostOf(target);
+    const { host, port } = hostPortOf(target);
     if (host && document.activeElement !== this.hostIn) this.hostIn.value = host;
+    this.port = port || PORT.tcp;
+    if (document.activeElement !== this.portIn) this.portIn.value = String(this.port);
+    if (this.portIn.hasAttribute('aria-invalid')) { this.portIn.removeAttribute('aria-invalid'); this.hostErr.textContent = ''; }
+    // Back to 443 returns to the profile target only from that target's own port traces.
+    if (!port && target !== this.portFrom.target) this.portFrom = { target: '', host: '' };
     this.wantStart = (!!t || !!host) && !this.alwaysOn();
     this.invIdle = this.wantStart && !!host;
     this.renderModes();
@@ -1611,7 +1652,7 @@ class Investigate {
   /** The modes this machine supports (from the last /api/trace; ICMP until then). @returns {TraceMode[]} */
   modes() { return (this.data && this.data.modes) || [{ mode: 'icmp', available: true }]; }
 
-  /** The ICMP | TCP 443 | UDP picker: unsupported modes are disabled, with the reason. */
+  /** The ICMP | TCP | UDP picker (TCP with its port box): unsupported modes are disabled, with the reason. */
   renderModes() {
     const ms = this.modes();
     this.modeSeg.replaceChildren(...['icmp', 'tcp', 'udp'].map((k) => {
@@ -1620,24 +1661,58 @@ class Investigate {
       const off = !!m && !m.available;
       return h('button', {
         type: 'button', text: MODE_LABEL[/** @type {'icmp'|'tcp'|'udp'} */ (k)], 'data-mode': k, 'aria-pressed': String(k === this.mode),
-        disabled: off || null, title: off ? modeReason(/** @type {TraceMode} */ (m)) : k === 'icmp' ? 'ICMP echo requests, like ping and mtr' : modeNote(m),
+        disabled: off || null, title: off ? modeReason(/** @type {TraceMode} */ (m)) : k === 'icmp' ? 'ICMP echo requests, like ping and mtr' : modeNote(m, this.port),
         onclick: () => this.setMode(k),
       });
     }).filter((x) => !!x));
     const cur = ms.find((x) => x.mode === this.mode);
     const off = ms.filter((x) => !x.available);
-    const lines = [modeNote(cur), ...off.map(modeReason)].filter(Boolean);
+    this.portIn.hidden = this.mode !== 'tcp' || !cur || !cur.available;
+    const lines = [modeNote(cur, this.port), ...off.map(modeReason)].filter(Boolean);
     this.modeNoteEl.textContent = lines.join(' ');
     this.modeNoteEl.hidden = !lines.length;
   }
 
-  /** Switches the probe type: a different trace of the same target. @param {string} m */
+  /** Switches the probe type: a different trace of the same target (a port's trace: of its host). @param {string} m */
   setMode(m) {
     if (m === this.mode) return;
     state.im = m;
+    // A refusal said under the boxes was about the other probe type.
+    this.hostErr.textContent = '';
+    this.hostIn.removeAttribute('aria-invalid');
+    const { host, port } = hostPortOf(this.target);
+    if (port && m !== 'tcp') { openInvestigate(HOST_PREFIX + host); return; }
     writeHash();
     this.open(this.target);
     this.load();
+  }
+
+  /**
+   * The port box changed: trace the shown target's host to that TCP port, as its own trace (host:name:port;
+   * 443 is host:name). Back to 443 from a profile target's port trace goes back to that target. The shown port
+   * changes only once the new trace opens (open()), so a refused one leaves the page as it was.
+   */
+  setPort() {
+    const n = Number(this.portIn.value);
+    if (!/^[0-9]+$/.test(this.portIn.value) || n < 1 || n > 65535) {
+      this.hostErr.textContent = 'The port must be a whole number from 1 to 65535.';
+      this.portIn.setAttribute('aria-invalid', 'true');
+      return;
+    }
+    this.portIn.removeAttribute('aria-invalid');
+    this.hostErr.textContent = '';
+    if (n === this.port) return;
+    // As the server names traces (normHost): lowercase, no trailing dot.
+    const host = (hostPortOf(this.target).host || (this.data && this.data.host) || '').toLowerCase().replace(/\.$/, '');
+    if (!host) {
+      this.hostErr.textContent = 'This target has no host to trace to another port.';
+      this.portIn.value = String(this.port);
+      return;
+    }
+    if (n === PORT.tcp && this.portFrom.target && this.portFrom.host === host) { openInvestigate(this.portFrom.target); return; }
+    if (!hostOf(this.target)) this.portFrom = { target: this.target, host };
+    this.hostIn.value = host;
+    this.traceHost(n);
   }
 
   close() { this.ctl?.abort(); }
@@ -1688,7 +1763,7 @@ class Investigate {
     try {
       /** @type {InvState} */
       const mode = this.mode;
-      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ target, mode }), { method: 'POST', headers: invHeaders() }, 1);
+      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ target, mode, rounds: String(this.rounds) }), { method: 'POST', headers: invHeaders() }, 1);
       if (target !== this.target || mode !== this.mode) return;
       this.invErr = '';
       this.setInv(r);
@@ -1713,7 +1788,8 @@ class Investigate {
    * syntax, a non-public address, no address, the limits) is shown under
    * the box with the server's reason.
    */
-  async traceHost() {
+  /** @param {number} [port] TCP's, else the shown one's */
+  async traceHost(port = this.port) {
     const host = this.hostIn.value.trim();
     if (!host || this.poking) return;
     this.poking = true;
@@ -1722,9 +1798,10 @@ class Investigate {
     this.hostIn.removeAttribute('aria-invalid');
     try {
       /** @type {InvState} */
-      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ host, mode: this.mode }), { method: 'POST', headers: invHeaders() }, 1);
+      const q = { host, mode: this.mode, rounds: String(this.rounds), ...(this.mode === 'tcp' ? { port: String(port) } : {}) };
+      const r = await fetchJSON('api/investigate?' + new URLSearchParams(q), { method: 'POST', headers: invHeaders() }, 1);
       this.poking = false;
-      this.hostIn.value = hostOf(r.target); // as the server normalised it
+      this.hostIn.value = hostPortOf(r.target).host; // as the server normalised it
       openInvestigate(r.target);
       this.wantStart = false;
       this.invIdle = false;
@@ -1765,7 +1842,7 @@ class Investigate {
     const prev = this.invState;
     this.invState = v || null;
     if (!v) return;
-    const how = this.mode === 'icmp' ? '' : ` with ${MODE_LABEL[/** @type {'tcp'|'udp'} */ (this.mode)]}`;
+    const how = this.mode === 'icmp' ? '' : this.mode === 'tcp' ? ` with TCP to port ${this.port}` : ' with UDP';
     const name = hostOf(v.target) || v.target;
     if (v.state === 'running' && (!prev || prev.state !== 'running' || prev.started_at !== v.started_at)) {
       this.invSay.textContent = `Tracing ${name}${how}: up to ${v.rounds_max} rounds.`;
@@ -1790,7 +1867,7 @@ class Investigate {
     } else if (this.invIdle) {
       kids.push(h('span', { class: 'pill', text: 'Not tracing' }));
       kids.push(h('button', { class: 'tbtn', type: 'button', text: 'Trace', disabled: this.poking || null,
-        title: 'Traces this target every few seconds; it stops by itself after about 10 minutes.', onclick: () => this.poke() }));
+        title: `Traces this target every few seconds; it stops by itself after ${this.rounds} rounds (${roundsTime(this.rounds)}).`, onclick: () => this.poke() }));
     } else kids.push(h('span', { class: 'pill', text: 'Starting a trace…' }));
     if (d && d.route) kids.push(h('span', { class: 'muted small', text: `route unchanged since ${fmtWhen(Date.parse(d.route.since))}` }));
     this.statusEl.replaceChildren(...kids);
@@ -1892,7 +1969,7 @@ class Investigate {
       const pending = t && !this.alwaysOn() && !this.invErr && !this.invIdle && (!this.invState || this.invState.state === 'running');
       this.summary.className = 'inv-summary v-warming_up';
       kids.push(h('p', { class: 'is-head', text: pending ? 'Tracing… the first results appear within a few seconds.'
-        : this.invIdle ? 'Not tracing. Click Trace to follow this target’s path for about 10 minutes.' : 'No trace data in this range.' }));
+        : this.invIdle ? `Not tracing. Click Trace to follow this target’s path for ${this.rounds} rounds (${roundsTime(this.rounds)}).` : 'No trace data in this range.' }));
       this.summary.replaceChildren(...kids);
       return;
     }
@@ -1933,10 +2010,10 @@ class Investigate {
   renderTable() {
     const d = /** @type {TraceData} */ (this.data);
     const dest = this.dest();
-    const cols = this.more ? [...HOP_COLS, ...MORE_COLS] : HOP_COLS;
+    const cols = [...HOP_COLS, ...(this.more ? [...MORE_COLS, ['Latency (best–worst, avg)', 'bar', 'Each hop\'s best–worst range with a tick at the average']] : []),
+      ['Note', 'note', 'What fyisp adds to mtr: where real loss starts, routers that only rate-limit their replies, your ISP\'s hops']];
     this.table.classList.toggle('more', this.more);
-    this.thead.replaceChildren(h('tr', {}, ...[...cols, ['Latency (best–worst, avg)', 'bar', 'Each hop\'s best–worst range with a tick at the average']]
-      .map(([t, c, title]) => h('th', { class: c, scope: 'col', title, text: t }))));
+    this.thead.replaceChildren(h('tr', {}, ...cols.map(([t, c, title]) => h('th', { class: c, scope: 'col', title, text: t }))));
     const rows = [];
     // Bar scale: up to the largest max, but not beyond 1.5x the largest P95 (one outlier would squash every bar).
     let top = 0, p95 = 0;
@@ -1953,41 +2030,38 @@ class Investigate {
       const selected = x.hop === dest || this.sel.has(x.hop);
       const sw = h('span', { class: 'hsw' + (selected ? ' on' : '') });
       if (selected) sw.style.background = hopColor(x.hop);
-      const isp = !!(x.asn && d.isp_asn && x.asn === d.isp_asn);
-      const addr = h('td', { class: 'addr', 'data-label': 'Host' },
-        h('div', { class: 'ip' + (x.private || x.no_reply ? ' muted' : ''), text: hopAddr(x) },
-          x.private ? h('span', { class: 'masked', text: ' private' }) : null),
-        x.rdns ? h('div', { class: 'rdns', title: x.rdns, text: x.rdns }) : null);
-      const own = h('td', { class: 'own', 'data-label': 'ASN' },
-        hopOwner(x) ? h('span', { text: hopOwner(x) }) : h('span', { class: 'muted', text: x.private ? 'private network' : '—' }),
-        isp ? h('span', { class: 'isp', title: 'Same network (ASN) as your ISP\'s first public hop', text: 'your ISP' }) : null);
+      // The same strings as the mtr text (invreport.js), so the screen and a pasted report read alike.
+      const v = mtrCells(x);
+      const addr = h('td', { class: 'addr' + (x.private || x.no_reply ? ' muted' : ''), 'data-label': 'Host' },
+        first ? '' : '  ', mtrLabel(x), x.no_reply ? h('span', { class: 'sr-only', text: ' (no reply)' }) : null);
       // A router that never answers trace probes in this range is normal
-      // (many are configured that way): neutral "no reply", not 100% loss.
+      // (many are configured that way): its 100% is muted, and the note says so.
       const silent = x.n === 0 && x.lost > 0 && x.hop !== dest;
       const lossCell = h('td', { class: 'loss', 'data-label': 'Loss%' },
-        silent
-          ? h('span', { class: 'lv muted', title: 'This router does not answer trace probes. That is common and harmless: later hops still answer.', text: 'no reply' })
-          : h('span', { class: 'lv' + (x.loss >= 0.05 ? ' bad' : x.loss >= REAL_LOSS ? ' warn' : ''), text: x.n + x.lost ? fmtPct(x.loss) : '—' }));
-      if (silent) {
-        // nothing more to say
-      } else if (x === rs) {
-        lossCell.append(h('span', { class: 'lbadge real', title: 'Real loss starts here: this hop and the destination (at least half as much) lose probes, so packets are really dropped here or on the link before it.', text: 'loss starts here' }));
-      } else if (x.rate_limited && x.hop !== dest && !x.no_reply) {
-        lossCell.append(h('span', { class: 'lnote', title: 'Later hops do not show this loss: the router only answers trace probes at a limited rate. Your traffic is not affected.', text: 'not real — router rate-limiting' }));
+        h('span', { class: 'lv' + (silent ? ' muted' : x.loss >= 0.05 ? ' bad' : x.loss >= REAL_LOSS ? ' warn' : ''), text: v.loss }));
+      const notes = [];
+      if (silent) notes.push(h('span', { class: 'lnote', title: 'This router does not answer trace probes. That is common and harmless: later hops still answer.', text: 'no reply: harmless' }));
+      else if (x === rs) notes.push(h('span', { class: 'lbadge real', title: 'Real loss starts here: this hop and the destination (at least half as much) lose probes, so packets are really dropped here or on the link before it.', }, h('span', { 'aria-hidden': 'true', text: '◀ ' }), 'loss starts here'));
+      else if (x.rate_limited && x.hop !== dest && !x.no_reply) notes.push(h('span', { class: 'lnote', title: 'Later hops do not show this loss: the router only answers trace probes at a limited rate. Your traffic is not affected.', text: 'rate-limited, not real' }));
+      if (x.asn && d.isp_asn && x.asn === d.isp_asn) notes.push(h('span', { class: 'isp', title: 'Same network (ASN) as your ISP\'s first public hop', text: 'your ISP' }));
+      // The network's name (mtr -z prints only its number), or that the address is private.
+      const owner = x.owner || (x.private ? 'private network' : '');
+      if (owner) notes.push(h('span', { class: 'own muted', text: owner }));
+      const num = (/** @type {string} */ l, /** @type {string} */ t) => h('td', { class: 'num', 'data-label': l, text: t });
+      const more = (/** @type {string} */ l, /** @type {number|null} */ f) => h('td', { class: 'num', 'data-label': l, text: x.n > 0 ? fmtMs(f) : '—' });
+      const cells = [num('Snt', v.snt), num('Last', v.last), num('Avg', v.avg), num('Best', v.best), num('Wrst', v.wrst), num('StDev', v.stdev)];
+      if (this.more) {
+        const bar = h('div', { class: 'lbar' });
+        if (x.min != null && x.max != null) {
+          const rng = h('span', { class: 'rng' });
+          rng.style.left = pos(x.min);
+          rng.style.width = `calc(${pos(x.max)} - ${pos(x.min)} + 2px)`;
+          bar.append(rng);
+          if (x.mean != null) { const t = h('span', { class: 'avg' }); t.style.left = pos(x.mean); bar.append(t); }
+          if (x.max > top) bar.append(h('span', { class: 'over', title: `worst ${fmtMs(x.max)} ms`, text: '›' }));
+        }
+        cells.push(more('P95', x.p95), more('Javg', x.jitter), more('Jmax', x.jmax), h('td', { class: 'bar', 'data-label': 'Latency' }, bar));
       }
-      const bar = h('div', { class: 'lbar' });
-      if (x.min != null && x.max != null) {
-        const rng = h('span', { class: 'rng' });
-        rng.style.left = pos(x.min);
-        rng.style.width = `calc(${pos(x.max)} - ${pos(x.min)} + 2px)`;
-        bar.append(rng);
-        if (x.mean != null) { const t = h('span', { class: 'avg' }); t.style.left = pos(x.mean); bar.append(t); }
-        if (x.max > top) bar.append(h('span', { class: 'over', title: `worst ${fmtMs(x.max)} ms`, text: '›' }));
-      }
-      const num = (/** @type {string} */ l, /** @type {number|null} */ v) => h('td', { class: 'num', 'data-label': l, text: x.n > 0 ? fmtMs(v) : '—' });
-      const nums = [h('td', { class: 'num', 'data-label': 'Snt', text: String(x.n + x.lost) }),
-        num('Last', x.last), num('Avg', x.mean), num('Best', x.min), num('Wrst', x.max), num('StDev', x.stdev)];
-      if (this.more) nums.push(num('P95', x.p95), num('Javg', x.jitter), num('Jmax', x.jmax));
       const tr = h('tr', {
         class: (selected ? 'sel' : '') + (first ? '' : ' alt') + (x.hop === dest ? ' dest' : '') + (x === rs ? ' lstart' : ''),
         tabindex: '0', 'aria-selected': String(selected),
@@ -1995,15 +2069,25 @@ class Investigate {
         onclick: () => this.toggle(x.hop),
         onkeydown: (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.toggle(x.hop); } },
       },
-      h('td', { class: 'hn', 'data-label': '#' }, sw, first ? String(x.hop) : ''),
-      addr, own, lossCell, ...nums,
-      h('td', { class: 'bar', 'data-label': 'Latency' }, bar));
+      h('td', { class: 'hn', 'data-label': '#' }, sw, first ? `${x.hop}.` : ''),
+      addr, lossCell, ...cells, h('td', { class: 'note', 'data-label': 'Note' }, ...notes));
       rows.push(tr);
     }
-    if (!rows.length) rows.push(h('tr', {}, h('td', { class: 'none muted', colspan: String(cols.length + 1), text: 'No hops in this range.' })));
+    if (!rows.length) rows.push(h('tr', {}, h('td', { class: 'none muted', colspan: String(cols.length), text: 'No hops in this range.' })));
     this.tbody.replaceChildren(...rows);
+    // Copy mtr text's fallback box (no clipboard) holds the numbers of its click: kept while it is in use
+    // (rewriting it would drop the selection before Ctrl+C), hidden once it isn't, so it never shows older ones.
+    if (!this.hopsTa.hidden && document.activeElement !== this.hopsTa) { this.hopsTa.hidden = true; this.hopsSay.textContent = ''; }
     this.renderRun();
     this.renderReport();
+  }
+
+  /** Copy mtr text (the Hops header): the table as mtr -rwz text; says so when the trace is still running. */
+  async copyMtr() {
+    if (!this.data) return;
+    await copyText(mtrText(this.reportInput()), this.hopsTa, this.hopsSay);
+    const v = this.invState;
+    if (this.sessionOn() && v && v.state === 'running') this.hopsSay.textContent += ` The trace is still running: ${v.rounds_done} of ${v.rounds_max} rounds so far.`;
   }
 
   /** The report's input: the shown data, its range and the probe interval. */
@@ -2013,13 +2097,14 @@ class Investigate {
     const iv = this.sessionOn() && v ? v.interval_ms : d.interval_ms;
     const m = this.modes().find((x) => x.mode === this.mode);
     return { dst: this.runHost(), start: d.from, end: Math.min(d.to, d.now), intervalMs: iv || 0, hops: d.hops,
-      mode: this.mode, port: d.port || 0, viaICMP: !!m && m.hops_via === 'icmp' };
+      mode: this.mode, port: d.port || 0, viaICMP: !!m && m.hops_via === 'icmp', destHop: this.dest() };
   }
 
   reportText() {
     if (!this.data) return '';
     const r = this.reportInput();
-    return this.repFmt === 'json' ? mtrJSON(r) : this.repFmt === 'csv' ? mtrCSV(r) : mtrText(r);
+    const f = { json: mtrJSON, csv: mtrCSV, ping: pingText, traceroute: tracerouteText }[this.repFmt] || mtrText;
+    return f(r);
   }
 
   /** Fills the report box while it is open. */
@@ -2042,11 +2127,11 @@ class Investigate {
   /** "Run it yourself": the same trace with mtr (or pathping on Windows). */
   renderRun() {
     const host = this.runHost();
-    const key = `${this.mode} ${host}`;
+    const key = `${this.mode} ${this.port} ${host}`;
     if (key === this.runFor) return;
     this.runFor = key;
     if (!host) { this.runEl.replaceChildren(); return; }
-    const cmd = mtrCommand(host, this.mode);
+    const cmd = mtrCommand(host, this.mode, this.port);
     const say = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     const ta = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '1', hidden: true, 'aria-label': 'Command' }));
     this.runEl.replaceChildren(

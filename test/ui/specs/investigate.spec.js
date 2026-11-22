@@ -38,7 +38,7 @@ test('opening a target starts a trace by itself', async ({ page }) => {
 
 /** The hops table's rows of hop n (fyisp-webdev: one address per hop). @param {import('@playwright/test').Page} page @param {number} n */
 function hopRow(page, n) {
-  return page.locator('#inv table.hops tbody tr').filter({ has: page.locator('td.hn', { hasText: new RegExp(`^${n}$`) }) });
+  return page.locator('#inv table.hops tbody tr').filter({ has: page.locator('td.hn', { hasText: new RegExp(`^${n}\\.$`) }) });
 }
 
 // fyisp-webdev's steadyLoss: loss from hop 3 to the destination, hop 5
@@ -49,7 +49,7 @@ test('steady loss below the server\'s threshold gets no label, and the destinati
   await expect(sum).toContainText('too little to tell where the loss starts');
   await expect(sum).not.toContainText('no hop before it');
   await expect(sum).toContainText('hop 5 (');
-  await expect(hopRow(page, 5).locator('.lnote')).toHaveText('not real — router rate-limiting');
+  await expect(hopRow(page, 5).locator('.lnote')).toHaveText('rate-limited, not real');
   for (const n of [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]) {
     await expect(hopRow(page, n)).toHaveCount(1);
     await expect(hopRow(page, n).locator('.lnote, .lbadge')).toHaveCount(0);
@@ -59,22 +59,23 @@ test('steady loss below the server\'s threshold gets no label, and the destinati
 test('steady loss above the server\'s threshold: real loss starts at hop 3', async ({ page }) => {
   await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8', r: '6h' }));
   await expect(page.locator('#inv .inv-summary .is-head')).toHaveText(/^Real loss starts at hop 3 \(AS64500 EXAMPLE-ISP, your ISP\) and continues to the destination/);
-  await expect(hopRow(page, 5).locator('.lnote')).toHaveText('not real — router rate-limiting');
+  await expect(hopRow(page, 5).locator('.lnote')).toHaveText('rate-limited, not real');
   // One marker, on the first hop the server flags, not a badge on every hop with real loss.
   await expect(page.locator('#inv table.hops .lbadge')).toHaveCount(1);
-  await expect(hopRow(page, 3).locator('.lbadge.real')).toHaveText('loss starts here');
+  await expect(hopRow(page, 3).locator('.lbadge.real')).toHaveText('◀ loss starts here');
   for (const n of [4, 6, 7, 8, 9, 10, 11, 12]) await expect(hopRow(page, n).locator('.lnote, .lbadge')).toHaveCount(0);
   for (const n of [1, 2]) await expect(hopRow(page, n).locator('.lnote, .lbadge')).toHaveCount(0);
 });
 
 // ---------- mtr's view: columns, session range, reports ----------
 
-const MTR_COLS = ['#', 'Host', 'ASN', 'Loss%', 'Snt', 'Last', 'Avg', 'Best', 'Wrst', 'StDev'];
+const MTR_COLS = ['#', 'Host', 'Loss%', 'Snt', 'Last', 'Avg', 'Best', 'Wrst', 'StDev'];
+const MORE = ['P95', 'Javg', 'Jmax', 'Latency (best–worst, avg)'];
 const IPV4 = /\b\d{1,3}(\.\d{1,3}){3}\b/;
 
 /** The hops table's header texts. @param {import('@playwright/test').Page} page */
 async function headers(page) {
-  return (await page.locator('#inv table.hops thead th').allTextContents()).slice(0, -1); // the last is the latency bar
+  return (await page.locator('#inv table.hops thead th').allTextContents()).slice(0, -1); // the last is Note
 }
 
 test('the hops table has mtr\'s columns, and More columns is remembered', async ({ page }) => {
@@ -95,12 +96,12 @@ test('the hops table has mtr\'s columns, and More columns is remembered', async 
   await expect(more).toHaveAttribute('aria-pressed', 'false');
   await more.click();
   await expect(more).toHaveAttribute('aria-pressed', 'true');
-  expect(await headers(page)).toEqual([...MTR_COLS, 'P95', 'Javg', 'Jmax']);
+  expect(await headers(page)).toEqual([...MTR_COLS, ...MORE]);
   await expect(row.locator('td[data-label="Jmax"]')).toHaveText(/^\d+(\.\d+)?$/);
 
   await page.reload();
   await expect(hopRow(page, 1)).toHaveCount(1);
-  expect(await headers(page)).toEqual([...MTR_COLS, 'P95', 'Javg', 'Jmax']);
+  expect(await headers(page)).toEqual([...MTR_COLS, ...MORE]);
   await page.getByRole('button', { name: 'More columns' }).click();
   expect(await headers(page)).toEqual(MTR_COLS);
 });
@@ -290,8 +291,8 @@ test('the probe picker: TCP 443 and UDP traces, with a matching report and mtr c
   await expect(page.locator('#inv .inv-status .pill.on', { hasText: 'Always-on trace' })).toBeVisible();
   expect(posts.modes).toEqual([]); // the always-on trace is ICMP
 
-  await modes.getByRole('button', { name: 'TCP 443' }).click();
-  await expect(modes.getByRole('button', { name: 'TCP 443' })).toHaveAttribute('aria-pressed', 'true');
+  await modes.getByRole('button', { name: 'TCP', exact: true }).click();
+  await expect(modes.getByRole('button', { name: 'TCP', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => posts.modes).toEqual(['tcp']); // the owner's view starts the TCP trace
   expect(asked).toContain('tcp');
   await expect(page.locator('#inv .inv-status .pill.on', { hasText: 'Tracing…' })).toBeVisible();
@@ -304,7 +305,7 @@ test('the probe picker: TCP 443 and UDP traces, with a matching report and mtr c
 
   // The mode is part of the link.
   await page.reload();
-  await expect(modes.getByRole('button', { name: 'TCP 443' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(modes.getByRole('button', { name: 'TCP', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
   await modes.getByRole('button', { name: 'UDP' }).click();
   await expect(page.locator('#inv .inv-run .inv-cmd')).toHaveText('mtr -u -P 33434 -rwzbc 100 8.8.8.8');
@@ -342,3 +343,196 @@ for (const width of [1400, 390]) {
     await hops.screenshot({ path: `out/shots/investigate-hops-${width}.png` });
   });
 }
+
+test('the rounds picker sets the next trace’s rounds and is kept', async ({ page }) => {
+  const target = await onDemandTarget(page, 2);
+  /** @type {string[]} */
+  const asked = [];
+  await page.route('**/api/investigate?*', async (route) => {
+    const u = new URL(route.request().url());
+    asked.push(u.searchParams.get('rounds') || '');
+    const n = Number(u.searchParams.get('rounds'));
+    return route.fulfill({ json: { target, state: 'finished', rounds_done: n, rounds_max: n, interval_ms: 2500, started_at: Date.now() - 1000, finished_at: Date.now() } });
+  });
+  await page.goto('/#' + new URLSearchParams({ t: target }));
+  const sel = page.locator('#inv select.inv-rounds');
+  await expect(sel).toHaveValue('200');
+  await expect.poll(() => asked).toEqual(['200']);
+  await sel.selectOption('10');
+  await page.locator('#inv .inv-status button', { hasText: 'Trace again' }).click();
+  await expect.poll(() => asked).toEqual(['200', '10']);
+  await page.reload();
+  await expect(page.locator('#inv select.inv-rounds')).toHaveValue('10');
+});
+
+test('the ping summary reports the destination’s packets, loss and RTTs', async ({ page }) => {
+  await page.goto('/');
+  const text = await page.evaluate(async () => {
+    const { pingText } = await import('/static/invreport.js');
+    const hops = [
+      { hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1, stdev: 0 },
+      { hop: 2, ip: '8.8.8.8', n: 98, lost: 2, loss: 0.02, min: 10.5, mean: 12.25, max: 20, stdev: 1.5 },
+    ];
+    return pingText({ dst: 'dns.google', start: 0, end: 250000, intervalMs: 2500, hops });
+  });
+  const lines = text.split('\n');
+  expect(lines[0]).toBe('--- dns.google ping statistics ---');
+  expect(lines[1]).toBe('100 packets transmitted, 98 received, 2% packet loss');
+  expect(lines[2]).toBe('rtt min/avg/max/mdev = 10.500/12.250/20.000/1.500 ms');
+  expect(lines[4]).toContain('ICMP echo probes');
+  expect(lines[4]).toContain('The destination is hop 2');
+});
+
+test('the ping summary takes the route’s destination, not a deeper stray row, and says when it never answered', async ({ page }) => {
+  await page.goto('/');
+  const [stray, silent, hourly] = await page.evaluate(async () => {
+    const { pingText } = await import('/static/invreport.js');
+    const base = { dst: 'dns.google', start: 0, end: 250000, intervalMs: 2500 };
+    const dest = { hop: 2, ip: '8.8.8.8', n: 90, lost: 10, loss: 0.1, min: 10, mean: 11, max: 12, stdev: 0.5 };
+    const one = { hop: 3, ip: '8.8.8.8', n: 1, lost: 0, loss: 0, min: 11, mean: 11, max: 11, stdev: 0 };
+    return [
+      pingText({ ...base, destHop: 2, hops: [{ hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1 }, dest, one] }),
+      pingText({ ...base, destHop: 2, hops: [{ hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1 }, { hop: 2, no_reply: true, n: 0, lost: 100, loss: 1, min: null, mean: null, max: null }] }),
+      pingText({ ...base, destHop: 2, hops: [{ ...dest, stdev: null }] }),
+    ];
+  });
+  expect(stray.split('\n')[1]).toBe('100 packets transmitted, 90 received, 10% packet loss');
+  expect(stray).toContain('The destination is hop 2;');
+  expect(silent.split('\n')[1]).toBe('100 packets transmitted, 0 received, 100% packet loss');
+  expect(silent).not.toContain('rtt');
+  expect(silent).toContain('hop 2, which never answered');
+  expect(hourly.split('\n')[2]).toBe('rtt min/avg/max = 10.000/11.000/12.000 ms');
+});
+
+test('the rounds picker shows on an always-on target too, and Copy report offers the ping summary', async ({ page }) => {
+  await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8' }));
+  const inv = page.locator('#inv');
+  await expect(inv.locator('.inv-status .pill', { hasText: 'Always-on trace' })).toBeVisible();
+  await expect(inv.locator('select.inv-rounds')).toBeVisible();
+  await expect(inv.locator('select.inv-rounds')).toBeEnabled();
+  await inv.locator('details.inv-report summary').click();
+  await inv.locator('.inv-rep-bar button', { hasText: 'Ping summary' }).click();
+  await expect(inv.locator('details.inv-report textarea.inv-rep-text')).toHaveValue(/^--- .* ping statistics ---\n\d+ packets transmitted, \d+ received, [\d.]+% packet loss\nrtt min\/avg\/max\/mdev = /);
+});
+
+test('each hops row reads like its line in the mtr text, and Copy mtr text copies it', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8', r: '1h' }));
+  await expect(hopRow(page, 12)).toHaveCount(1);
+  await page.getByRole('button', { name: 'Copy mtr text' }).click();
+  await expect(page.locator('#inv .panel-head [role=status]')).toHaveText('Copied.');
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  const lines = text.split('\n').filter((l) => /^ *\d+\.\|-- /.test(l));
+  expect(lines.length).toBe(12);
+  for (const l of lines) {
+    const n = Number(l.trim().split('.')[0]);
+    // The row's host, Loss% and times (the hidden " (no reply)" is for screen readers only).
+    const cells = (await hopRow(page, n).first().locator('td').allTextContents()).slice(1, 9).map((c) => c.replace(' (no reply)', '').trim());
+    // The line is "N.|-- <host> <Loss%> <Snt> <Last> <Avg> <Best> <Wrst> <StDev>": the same strings as the row.
+    expect(l).toContain(cells[0]);
+    expect(l.trim().split(/\s+/).slice(-7)).toEqual(cells.slice(1));
+  }
+
+  // No clipboard: the box shows the text; kept while in use, hidden on a refresh once it isn't.
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined }));
+  await page.getByRole('button', { name: 'Copy mtr text' }).click();
+  await expect(page.locator('#inv .panel-head [role=status]')).toHaveText(/^Selected: press Ctrl\+C/);
+  const box = page.locator('#inv textarea[aria-label="mtr text"]');
+  await expect(box).toBeVisible();
+  await expect(box).toHaveValue(/^Start: .*\nHOST: fyisp/);
+  // While it is in use, the 5 s refresh leaves it (and its selection) alone.
+  const sel = await box.evaluate((/** @type {HTMLTextAreaElement} */ t) => [t.selectionStart, t.selectionEnd]);
+  await page.waitForTimeout(6000);
+  await expect(box).toBeVisible();
+  expect(await box.evaluate((/** @type {HTMLTextAreaElement} */ t) => [t.selectionStart, t.selectionEnd])).toEqual(sel);
+  await box.blur();
+  await page.waitForTimeout(6000);
+  await expect(box).toBeHidden();
+  await page.getByRole('button', { name: 'Copy mtr text' }).click();
+  await expect(box).toBeVisible();
+  // Another target: the box goes, so it never shows the previous target's hops.
+  await page.goto('/#' + new URLSearchParams({ t: 'CDN-Cloudflare', r: '1h' }));
+  await expect(box).toBeHidden();
+});
+
+test('Copy mtr text says when the trace is still running', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await withSession(page, { state: 'running', rounds_done: 72, rounds_max: 200, started_at: Date.now() - 3 * 60e3 });
+  await page.goto('/#' + new URLSearchParams({ t: 'Microsoft-Teams' }));
+  await expect(page.locator('#inv table.hops tbody tr').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Copy mtr text' }).click();
+  await expect(page.locator('#inv .panel-head [role=status]')).toHaveText('Copied. The trace is still running: 72 of 200 rounds so far.');
+});
+
+test('a silent router reads ??? as in mtr, with its note', async ({ page }) => {
+  await page.goto('/');
+  const [label, cells] = await page.evaluate(async () => {
+    const { mtrLabel, mtrCells } = await import('/static/invreport.js');
+    const x = { hop: 6, no_reply: true, n: 0, lost: 100, loss: 1, min: null, mean: null, max: null };
+    return [mtrLabel(x), mtrCells(x)];
+  });
+  expect(label).toBe('AS???    ???');
+  expect(cells).toEqual({ loss: '100.00%', snt: '100', last: '0.0', avg: '0.0', best: '0.0', wrst: '0.0', stdev: '0.0' });
+});
+
+test('the traceroute report: one line per hop, * * * for a silent one, and what the three times are', async ({ page }) => {
+  await page.goto('/');
+  const text = await page.evaluate(async () => {
+    const { tracerouteText } = await import('/static/invreport.js');
+    const hops = [
+      { hop: 1, ip: '192.168.1.1', rdns: '_gateway', n: 100, lost: 0, loss: 0, min: 1.14, mean: 1.54, max: 3.11 },
+      { hop: 2, no_reply: true, n: 0, lost: 100, loss: 1, min: null, mean: null, max: null },
+      { hop: 3, ip: '8.8.8.8', rdns: 'dns.google', n: 98, lost: 2, loss: 0.02, min: 14.3, mean: 16.3, max: 24.4 },
+      { hop: 4, ip: '8.8.8.8', n: 1, lost: 0, loss: 0, min: 15, mean: 15, max: 15 },
+    ];
+    return tracerouteText({ dst: 'dns.google', start: 0, end: 250000, intervalMs: 2500, hops, mode: 'tcp', port: 443, destHop: 3 });
+  });
+  const lines = text.split('\n');
+  expect(lines[0]).toBe('traceroute to dns.google (8.8.8.8), 30 hops max, TCP SYN to port 443');
+  expect(lines[1]).toBe(' 1  _gateway (192.168.1.1)  1.140 ms  1.540 ms  3.110 ms');
+  expect(lines[2]).toBe(' 2  * * *');
+  expect(lines[3]).toBe(' 3  dns.google (8.8.8.8)  14.300 ms  16.300 ms  24.400 ms');
+  expect(lines[4]).toBe('');
+  expect(lines[5]).toMatch(/^fyisp: the three times are best, average and worst over 100 rounds \(not three single probes\); TCP SYN probes to port 443,/);
+});
+
+for (const width of [360, 390]) {
+  test(`on a ${width} px phone each hop is two lines and no number runs into the next, with a silent hop`, async ({ page }) => {
+    await page.addInitScript(() => { try { localStorage.setItem('fyisp-inv-more', '0'); } catch { /* none */ } });
+    await page.setViewportSize({ width, height: 900 });
+    // A silent router (100.00%) and a slow one (four-digit times) in fyisp-webdev's hops.
+    await page.route('**/api/trace?*', async (route) => {
+      const res = await route.fetch();
+      const d = await res.json();
+      for (const x of d.hops) {
+        if (x.hop === 6) Object.assign(x, { ip: undefined, rdns: undefined, asn: 0, owner: '', no_reply: true, n: 0, lost: x.n + x.lost, loss: 1, last: null, mean: null, min: null, max: null, stdev: null });
+        if (x.hop === 7) Object.assign(x, { last: 1222.2, mean: 1180.2, max: 1999.9 });
+      }
+      return route.fulfill({ response: res, json: d });
+    });
+    await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8', r: '1h' }));
+    await expect(hopRow(page, 12)).toHaveCount(1);
+    await expect(hopRow(page, 6).locator('td.addr')).toContainText('???');
+    await expect(hopRow(page, 6).locator('td.note')).toContainText('no reply: harmless');
+    const over = await page.locator('#inv table.hops tbody td.loss, #inv table.hops tbody td.num').evaluateAll((tds) =>
+      tds.filter((td) => td.scrollWidth > td.clientWidth + 1).map((td) => td.textContent));
+    expect(over).toEqual([]);
+    // Host on the first line, the numbers on the second.
+    const [addr, loss] = await Promise.all(['td.addr', 'td.loss'].map((c) => hopRow(page, 6).locator(c).boundingBox()));
+    expect(/** @type {any} */ (loss).y).toBeGreaterThan(/** @type {any} */ (addr).y);
+  });
+}
+
+test('long network names wrap in the Note column instead of widening the table (1024 px)', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('fyisp-inv-more', '0'); } catch { /* none */ } });
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route('**/api/trace?*', async (route) => {
+    const res = await route.fetch();
+    const d = await res.json();
+    for (const x of d.hops) if (x.asn) x.owner = 'COMCAST-7922 - Comcast Cable Communications, LLC';
+    return route.fulfill({ response: res, json: d });
+  });
+  await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8', r: '1h' }));
+  await expect(hopRow(page, 12).locator('td.note')).toContainText('Comcast');
+  expect(await page.locator('#inv table.hops').evaluate((t) => /** @type {HTMLElement} */ (t.parentElement).scrollWidth <= /** @type {HTMLElement} */ (t.parentElement).clientWidth)).toBe(true);
+});

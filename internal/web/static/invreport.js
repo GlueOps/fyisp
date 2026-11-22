@@ -11,7 +11,7 @@
  *   last?:number|null,stdev?:number|null}} ReportHop
  */
 /**
- * @typedef {{dst:string,start:number,end:number,intervalMs:number,hops:ReportHop[],mode?:string,port?:number,viaICMP?:boolean}} ReportInput
+ * @typedef {{dst:string,start:number,end:number,intervalMs:number,hops:ReportHop[],mode?:string,port?:number,viaICMP?:boolean,destHop?:number}} ReportInput
  */
 
 export const SRC = 'fyisp';
@@ -61,37 +61,63 @@ function nums(x) {
 }
 
 const r2 = (/** @type {number|null} */ f) => (f == null ? null : Math.round(f * 100) / 100);
-// A cell keeps a space before it however wide its value (e.g. 9999.9).
-const f1 = (/** @type {number|null} */ f, /** @type {number} */ w) => (' ' + (f == null ? '-' : f.toFixed(1))).padStart(w);
 
 /** mtr's report time: 2026-10-16T10:53:47+0000. @param {number} ms */
 function isoTime(ms) { return new Date(ms).toISOString().replace(/\.\d+Z$/, '+0000'); }
 
+// The probes' destination port when the trace doesn't say (TCP, UDP).
+export const PORT = { tcp: 443, udp: 33434 };
+
 /** The probe type, in words. @param {ReportInput} r */
 export function probeName(r) {
-  if (r.mode === 'tcp') return r.viaICMP ? `ICMP echo and TCP SYN (port ${r.port || 443}) probes at each TTL, the routers named from the ICMP replies` : `TCP SYN probes to port ${r.port || 443}`;
-  if (r.mode === 'udp') return `UDP probes to port ${r.port || 33434}`;
+  if (r.mode === 'tcp') return r.viaICMP ? `ICMP echo and TCP SYN (port ${r.port || PORT.tcp}) probes at each TTL, the routers named from the ICMP replies` : `TCP SYN probes to port ${r.port || PORT.tcp}`;
+  if (r.mode === 'udp') return `UDP probes to port ${r.port || PORT.udp}`;
   return 'ICMP echo probes';
 }
 
-/** The footer: how fyisp measured. @param {ReportInput} r */
+/** How fyisp measured, for the footers: the probes and the round interval, and the time range. @param {ReportInput} r */
+const probes = (r) => `${probeName(r)}, one round every ${Math.round(r.intervalMs / 100) / 10} s`;
+const span = (/** @type {ReportInput} */ r) => `${isoTime(r.start)} to ${isoTime(r.end)}`;
+
+/** The footer of the mtr and ping reports. @param {ReportInput} r */
 function footer(r) {
-  const s = Math.round(r.intervalMs / 100) / 10;
-  return `fyisp: ${probeName(r)}, one round every ${s} s, at most ${ROUTER_RATE} probe a second per router (a busy router misses some rounds); ${isoTime(r.start)} to ${isoTime(r.end)}.`;
+  return `fyisp: ${probes(r)}, at most ${ROUTER_RATE} probe a second per router (a busy router misses some rounds); ${span(r)}.`;
+}
+
+/**
+ * The rows up to the destination (destHop, the current route's length): a deeper row can hold a few stray
+ * samples (a lost probe at the destination's TTL in the first round, or an older, longer route).
+ * @param {ReportInput} r
+ */
+function toDest(r) { return byHop(r.hops).filter((x) => !r.destHop || x.hop <= r.destHop); }
+
+/** One hop's host as mtr -z prints it: "AS64500  name (ip)". @param {ReportHop|null} x */
+export function mtrLabel(x) { return `${asnName(x)} `.padEnd(9) + hostName(x); }
+
+/**
+ * One hop's mtr numbers as mtr -rwz prints them: Loss% to 2 decimals, the times to 1 (0.0 without answers, as
+ * mtr; - when not known). Investigate's table shows these same strings.
+ * @param {ReportHop|null} x
+ */
+export function mtrCells(x) {
+  const v = nums(x);
+  const t = (/** @type {number|null} */ f) => (f == null ? '-' : f.toFixed(1));
+  return { loss: v.loss.toFixed(2) + '%', snt: String(v.snt), last: t(v.last), avg: t(v.avg), best: t(v.best), wrst: t(v.wrst), stdev: t(v.stdev) };
 }
 
 /** `mtr -rwz` text. @param {ReportInput} r */
 export function mtrText(r) {
   const rows = byHop(r.hops);
-  const label = (/** @type {ReportHop|null} */ x) => `${asnName(x)} `.padEnd(9) + hostName(x);
-  const w = Math.max(SRC.length + 2, ...rows.map((x) => label(x.main).length + 2)) + 1;
+  const w = Math.max(SRC.length + 2, ...rows.map((x) => mtrLabel(x.main).length + 2)) + 1;
   const head = ('HOST: ' + SRC).padEnd(8 + w) + '   Loss%   Snt   Last   Avg  Best  Wrst StDev';
   const lines = [`Start: ${isoTime(r.start)}`, head];
+  // A cell keeps a space before it however wide its value (e.g. 9999.9).
+  const c = (/** @type {string} */ v) => (' ' + v).padStart(6);
   for (const { hop, main, more } of rows) {
-    const v = nums(main);
-    lines.push(`${String(hop).padStart(3)}.|-- ${label(main).padEnd(w)}` +
-      `${(v.loss.toFixed(2) + '%').padStart(8)}${String(v.snt).padStart(6)} ${f1(v.last, 6)}${f1(v.avg, 6)}${f1(v.best, 6)}${f1(v.wrst, 6)}${f1(v.stdev, 6)}`);
-    for (const m of more) lines.push(`        ${label(m)}`);
+    const v = mtrCells(main);
+    lines.push(`${String(hop).padStart(3)}.|-- ${mtrLabel(main).padEnd(w)}` +
+      `${v.loss.padStart(8)}${v.snt.padStart(6)} ${c(v.last)}${c(v.avg)}${c(v.best)}${c(v.wrst)}${c(v.stdev)}`);
+    for (const m of more) lines.push(`        ${mtrLabel(m)}`);
   }
   lines.push('', footer(r));
   return lines.join('\n') + '\n';
@@ -127,9 +153,48 @@ export function mtrCSV(r) {
   return lines.join('\n') + '\n';
 }
 
-/** The command to run the same trace yourself, with the same probes. @param {string} host @param {string} [mode] */
-export function mtrCommand(host, mode = 'icmp') {
-  const how = mode === 'tcp' ? '-T -P 443 ' : mode === 'udp' ? '-u -P 33434 ' : '';
+/** Ping's statistics for the destination, as `ping -c N` prints them, from the same rounds. @param {ReportInput} r */
+export function pingText(r) {
+  const rows = toDest(r);
+  const last = rows.length ? rows[rows.length - 1].main : null;
+  const v = nums(last);
+  const rx = last ? last.n : 0;
+  const f3 = (/** @type {number|null} */ f) => (f == null ? '-' : f.toFixed(3));
+  const lines = [`--- ${r.dst} ping statistics ---`,
+    `${v.snt} packets transmitted, ${rx} received, ${+v.loss.toFixed(2)}% packet loss`];
+  if (rx) lines.push(v.stdev == null ? `rtt min/avg/max = ${f3(v.best)}/${f3(v.avg)}/${f3(v.wrst)} ms` : `rtt min/avg/max/mdev = ${f3(v.best)}/${f3(v.avg)}/${f3(v.wrst)}/${f3(v.stdev)} ms`);
+  lines.push('', `${footer(r)} The destination is hop ${last ? last.hop : 0}${rx ? '' : ', which never answered'}; mdev is the standard deviation.`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * `traceroute` text: one line per hop up to the destination (destHop), "* * *" for a hop that never answered.
+ * The three times are the hop's best, average and worst over the rounds, not three single probes; the footer
+ * says so.
+ * @param {ReportInput} r
+ */
+export function tracerouteText(r) {
+  const rows = toDest(r);
+  const dest = rows.length ? rows[rows.length - 1].main : null;
+  const ip = dest && !dest.no_reply && dest.ip && dest.ip !== r.dst ? ` (${dest.ip})` : '';
+  const mode = r.mode || 'icmp';
+  const how = mode === 'tcp' ? `, TCP SYN to port ${r.port || PORT.tcp}` : mode === 'udp' ? `, UDP to port ${r.port || PORT.udp}` : '';
+  const lines = [`traceroute to ${r.dst}${ip}, 30 hops max${how}`];
+  const ms = (/** @type {number|null} */ f) => (f == null ? '*' : `${f.toFixed(3)} ms`);
+  let snt = 0;
+  for (const { hop, main } of rows) {
+    snt = Math.max(snt, nums(main).snt);
+    const n = String(hop).padStart(2);
+    if (!main || main.n === 0 || !main.ip) { lines.push(`${n}  * * *`); continue; }
+    lines.push(`${n}  ${hostName(main)}  ${ms(main.min)}  ${ms(main.mean)}  ${ms(main.max)}`);
+  }
+  lines.push('', `fyisp: the three times are best, average and worst over ${snt} rounds (not three single probes); ${probes(r)}; ${span(r)}.`);
+  return lines.join('\n') + '\n';
+}
+
+/** The command to run the same trace yourself, with the same probes. @param {string} host @param {string} [mode] @param {number} [port] TCP's */
+export function mtrCommand(host, mode = 'icmp', port = PORT.tcp) {
+  const how = mode === 'tcp' ? `-T -P ${port} ` : mode === 'udp' ? `-u -P ${PORT.udp} ` : '';
   return `mtr ${how}-rwzbc 100 ${host}`;
 }
 /** @param {string} host */

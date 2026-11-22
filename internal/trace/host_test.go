@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/glueops/fyisp/internal/model"
+	"github.com/glueops/fyisp/internal/netinfo/hops"
 )
 
 func (tr *tracer) has(name string, mode model.TraceMode) bool {
@@ -129,5 +130,36 @@ func TestInvestigateHostRebinding(t *testing.T) {
 		if c := f.callsTo(a(lit)); len(c) != 0 {
 			t.Errorf("%s: probes %v", lit, c)
 		}
+	}
+}
+
+// A host:name:port trace (Investigate by name) probes TCP to that port, and
+// a port is refused for other modes.
+func TestInvestigateHostPort(t *testing.T) {
+	f := newFakeNet("192.168.1.1", "62.1.1.1")
+	tr, _ := runTracer(t, f, Options{Interval: time.Hour, Investigate: 20 * time.Millisecond,
+		Resolve: func(context.Context, string) ([]netip.Addr, error) { return addrs("5.5.5.5"), nil }}, labProfile())
+	name := model.HostPortTarget("example.com", 2222)
+	if _, err := tr.Investigate(name, model.TraceICMP, 2); err == nil {
+		t.Error("ICMP trace of a port name started")
+	}
+	s, err := tr.Investigate(name, model.TraceTCP, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "rounds", func() bool { _, ended := s.Progress(); return !ended.IsZero() })
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, r := range f.log {
+		if r.dst == a("5.5.5.5") {
+			n++
+			if r.tp != hops.TCP || r.port != 2222 {
+				t.Errorf("probe %+v: want TCP to 2222", r)
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("no probes to the host")
 	}
 }

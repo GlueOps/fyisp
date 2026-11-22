@@ -210,6 +210,7 @@ func TestTraceNil(t *testing.T) {
 type traceResp struct {
 	Target     string `json:"target"`
 	Host       string `json:"host"`
+	Port       int    `json:"port"`
 	IntervalMs int64  `json:"interval_ms"`
 	Traced     bool   `json:"traced"`
 	From       int64  `json:"from"`
@@ -535,5 +536,46 @@ func TestInvestigateLimits(t *testing.T) {
 	finishAll()
 	if w := post("T4", good); w.Code != 200 || len(ft.started) != MaxInvestigations+1 {
 		t.Fatalf("after the others finished = %d %s, started %d", w.Code, w.Body.String(), len(ft.started))
+	}
+}
+
+// TestInvestigateRoundsParam: rounds= sets a new trace's length within
+// MinInvestigateRounds..InvestigateRounds; a running trace keeps its own.
+func TestInvestigateRoundsParam(t *testing.T) {
+	d, ft, _ := traceFixture(t)
+	h := Local(d, LocalOptions{Addr: "127.0.0.1:3000", CSRFToken: "tok123"})
+	good := map[string]string{"Host": "127.0.0.1:3000", "Origin": "http://127.0.0.1:3000", "Sec-Fetch-Site": "same-origin", HeaderCSRF: "tok123"}
+	for _, q := range []string{"rounds=9", "rounds=251", "rounds=abc", "rounds=", "rounds=100&rounds=100"} {
+		if w := do(h, "POST", "/api/investigate?target=Beta&"+q, good); w.Code != 400 {
+			t.Errorf("%s = %d, want 400", q, w.Code)
+		}
+	}
+	if len(ft.started) != 0 {
+		t.Fatalf("refused requests started traces: %v", ft.started)
+	}
+	var r investigationJSON
+	w := do(h, "POST", "/api/investigate?target=Beta&rounds=100", good)
+	_ = json.Unmarshal(w.Body.Bytes(), &r)
+	if w.Code != 200 || r.RoundsMax != 100 || ft.sessions[0].max != 100 {
+		t.Fatalf("rounds=100: %d %s", w.Code, w.Body.String())
+	}
+	// A running trace is returned as is, whatever rounds the POST asks for.
+	w = do(h, "POST", "/api/investigate?target=Beta&rounds=10", good)
+	r = investigationJSON{}
+	_ = json.Unmarshal(w.Body.Bytes(), &r)
+	if w.Code != 200 || len(ft.started) != 1 || r.RoundsMax != 100 {
+		t.Errorf("re-post: started %v, %s", ft.started, w.Body.String())
+	}
+	// Once finished, the next one takes the new count; none is the default.
+	ft.sessions[0].advance(100)
+	w = do(h, "POST", "/api/investigate?target=Beta&rounds=10", good)
+	_ = json.Unmarshal(w.Body.Bytes(), &r)
+	if len(ft.started) != 2 || r.RoundsMax != 10 {
+		t.Errorf("after finish: %s", w.Body.String())
+	}
+	w = do(h, "POST", "/api/investigate?target=Alpha", good)
+	_ = json.Unmarshal(w.Body.Bytes(), &r)
+	if r.RoundsMax != InvestigateRounds {
+		t.Errorf("default: %s", w.Body.String())
 	}
 }
