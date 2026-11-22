@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.0](https://github.com/GlueOps/fyisp/compare/v0.16.0...v0.17.0) (2026-11-22)
+
+
+### Features
+
+* add a tcp path survey and exports for comparing sites ([#153](https://github.com/GlueOps/fyisp/issues/153)) ([0846e44](https://github.com/GlueOps/fyisp/commit/0846e443c203172a465da1a841c6cd97e22b3af7))
+* **investigate:** an mtr-style looking glass with rounds, ping/traceroute reports and a TCP port ([#154](https://github.com/GlueOps/fyisp/issues/154)) ([0bf732c](https://github.com/GlueOps/fyisp/commit/0bf732cf438893416a70c5da801d0da438e44ab1))
+
 ## [0.16.0](https://github.com/GlueOps/fyisp/compare/v0.15.1...v0.16.0) (2026-11-21)
 
 
