@@ -293,9 +293,27 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		complete = true
 		reached  = false
 		unknown  = 0
-		last     = 0     // highest TTL that answered
-		retried  = false // a silent fixed-flow TTL was asked again from a fresh port
+		last     = 0       // highest TTL that answered
+		retried  = false   // two silent fixed-flow TTLs were asked again from fresh ports
+		prevK    *limitKey // the previous TTL's key when its fixed-flow probe was silent
 	)
+	// fresh asks ttl from a fresh port once k's bucket is full again (a
+	// silent probe's wait refills most of it).
+	fresh := func(ttl int, k limitKey) (hops.Hop, []limitKey, bool) {
+		if d := tr.lim.untilFull(k, tr.o.Now()); d > 0 && d <= time.Second {
+			select {
+			case <-ctx.Done():
+			case <-time.After(d):
+			}
+		}
+		keys, ok := tr.lim.takeSpare(k, tr.o.Now())
+		if !ok || ctx.Err() != nil {
+			return hops.Hop{}, nil, false
+		}
+		h, err := tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout)
+		return h, keys, err == nil
+	}
+	heard := func(h hops.Hop) bool { return h.Addr.IsValid() || h.Reached || h.Unreach }
 	for ttl := 1; ttl <= surveyMaxHops && ctx.Err() == nil; ttl++ {
 		var expect netip.Addr
 		if ttl-1 < len(t.route) {
@@ -336,24 +354,33 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		}
 		// Some NATs and firewalls drop a flow's repeated SYNs (or the answers
 		// to them) until their state for it expires, so past them a fixed flow
-		// goes silent. Its first silent TTL is asked once more from a fresh
-		// port, once the router's bucket is full again (the silent probe's
-		// wait refills most of it); when that answers, this round goes on
-		// from fresh ports.
-		if err == nil && fixed && !retried && tp != nil && !h.Addr.IsValid() && !h.Reached && !h.Unreach {
+		// goes silent. When two TTLs in a row are silent, both are asked again
+		// from fresh ports; when one answers, this round goes on from fresh
+		// ports. One lost answer (a router's rate limit) keeps the flow.
+		silent := err == nil && fixed && !heard(h)
+		if silent && prevK != nil && !retried && tp != nil {
 			retried = true
-			if d := tr.lim.untilFull(k, tr.o.Now()); d > 0 && d <= time.Second {
-				select {
-				case <-ctx.Done():
-				case <-time.After(d):
+			hp, kp, okp := fresh(ttl-1, *prevK)
+			hc, kc, okc := fresh(ttl, k)
+			if okp && heard(hp) || okc && heard(hc) {
+				fixed = false
+				if okp && hp.Addr.IsValid() && !hp.Reached && !hp.Unreach {
+					a := hp.Addr.Unmap()
+					answered[ttl-2], rtts[ttl-2] = a, hp.RTT
+					tr.lim.answered(ttl-1, prevK.addr, a, kp, tr.o.Now())
+					tr.hops.seen(a)
+					sv.answered(a, hp.RTT, tr.o.Now())
+					unknown, last = 0, ttl-1
+				}
+				if okc {
+					h, keys = hc, append(keys, kc...)
 				}
 			}
-			if more, ok := tr.lim.takeSpare(k, tr.o.Now()); ok && ctx.Err() == nil {
-				keys = append(keys, more...)
-				if h2, err2 := tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout); err2 == nil && (h2.Addr.IsValid() || h2.Reached || h2.Unreach) {
-					h, fixed = h2, false
-				}
-			}
+		}
+		prevK = nil
+		if silent && fixed {
+			kk := k
+			prevK = &kk
 		}
 		if err != nil {
 			tr.o.Log.Debug("path survey: probe failed", "target", t.st.t.Name, "ttl", ttl, "err", err)
