@@ -66,7 +66,7 @@ func surveyClassify(path func() netinfo.Path) func([]netip.Addr) []model.SurveyC
 	}
 }
 
-// keepAddr is the probe runner's OnResolve with --path-survey: it keeps
+// keepAddr is the probe runner's OnResolve while the path survey runs: it keeps
 // the address each host's probes use (`fyisp export --addrs`), except
 // one on this network (a --config target on the LAN, this machine's own)
 // or in this connection's provider's network (it could be the user's own,

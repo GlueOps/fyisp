@@ -169,8 +169,8 @@ func parseFlags(args []string) (config, error) {
 	fs.BoolVar(&c.openBrowser, "open-browser", true, "open the dashboard in a browser at startup (interactive terminals only)")
 	// No env default: flag's usage prints defaults, and this one is a secret.
 	fs.StringVar(&c.adminToken, "admin-token", "", "token the dashboard and its API require (at least 32 letters, digits or - . _ ~, e.g. from openssl rand -hex 16); change it to sign every browser out (default: $FYISP_ADMIN_TOKEN, else a new random one at each start, shown as a link in the log)")
-	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL"), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
-	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY"), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (`fyisp export --survey`); see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else false)")
+	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL", false), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
+	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY", true), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (`fyisp export --survey`); --path-survey=false turns it off; see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else true)")
 	fs.Var(&c.allowHosts, "allow-host", "extra `name` the dashboard may be opened as, e.g. nas.local or nas.local:3000 (repeatable or comma-separated)")
 	fs.StringVar(&c.pprofAddr, "pprof", "", "serve Go pprof on this loopback address (debugging)")
 	fs.StringVar(&c.logFormat, "log-format", "auto", "log format: auto, text or json")
@@ -208,19 +208,26 @@ func parseFlags(args []string) (config, error) {
 			return c, err
 		}
 	}
-	if v := os.Getenv("FYISP_TUNNEL"); v != "" {
-		if _, err := strconv.ParseBool(v); err != nil {
-			return c, fmt.Errorf("FYISP_TUNNEL=%q: want 1, true, 0 or false", v)
+	for _, name := range []string{"FYISP_TUNNEL", "FYISP_PATH_SURVEY"} {
+		if v := os.Getenv(name); v != "" {
+			if _, err := strconv.ParseBool(v); err != nil {
+				return c, fmt.Errorf("%s=%q: want 1, true, 0 or false", name, v)
+			}
 		}
 	}
 	envProfiles(&c.profiles, c.configPath)
 	return c, nil
 }
 
-// envBool is an environment variable's boolean (unset or not a boolean:
-// false), for flags a container or NAS template sets more easily that way.
-func envBool(name string) bool {
-	b, _ := strconv.ParseBool(os.Getenv(name))
+// envBool is an environment variable's boolean (unset: def; not a
+// boolean: false, which parseFlags rejects), for flags a container or NAS
+// template sets more easily that way.
+func envBool(name string, def bool) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	b, _ := strconv.ParseBool(v)
 	return b
 }
 
