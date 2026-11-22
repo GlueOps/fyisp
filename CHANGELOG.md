@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/GlueOps/fyisp/compare/v0.18.2...v0.18.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **trace:** survey past NATs that drop a flow's repeated SYNs ([#168](https://github.com/GlueOps/fyisp/issues/168)) ([b0623e3](https://github.com/GlueOps/fyisp/commit/b0623e312448bd0e83ba2c08d8ea41efb67ae2fa))
+
 ## [0.18.2](https://github.com/GlueOps/fyisp/compare/v0.18.1...v0.18.2) (2026-11-22)
 
 
