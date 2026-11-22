@@ -337,10 +337,18 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		// Some NATs and firewalls drop a flow's repeated SYNs (or the answers
 		// to them) until their state for it expires, so past them a fixed flow
 		// goes silent. Its first silent TTL is asked once more from a fresh
-		// port; when that answers, this round goes on from fresh ports.
+		// port, once the router's bucket is full again (the silent probe's
+		// wait refills most of it); when that answers, this round goes on
+		// from fresh ports.
 		if err == nil && fixed && !retried && tp != nil && !h.Addr.IsValid() && !h.Reached && !h.Unreach {
 			retried = true
-			if more, ok := tr.lim.takeSpare(k, tr.o.Now()); ok {
+			if d := tr.lim.untilFull(k, tr.o.Now()); d > 0 && d <= time.Second {
+				select {
+				case <-ctx.Done():
+				case <-time.After(d):
+				}
+			}
+			if more, ok := tr.lim.takeSpare(k, tr.o.Now()); ok && ctx.Err() == nil {
 				keys = append(keys, more...)
 				if h2, err2 := tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout); err2 == nil && (h2.Addr.IsValid() || h2.Reached || h2.Unreach) {
 					h, fixed = h2, false

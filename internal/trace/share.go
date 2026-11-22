@@ -320,6 +320,16 @@ func (l *limiter) take(k limitKey, now time.Time) ([]limitKey, bool) {
 	return keys, true
 }
 
+// untilFull is how long k's bucket takes to be full again (0: it is).
+func (l *limiter) untilFull(k limitKey, now time.Time) time.Duration {
+	if l.rate < 0 {
+		return 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return time.Duration((burst - l.bucket(k, now).tokens) / l.rate * float64(time.Second))
+}
+
 // takeSpare is take for the path survey: it takes a token only from full
 // buckets, so every router keeps one for the other traces.
 func (l *limiter) takeSpare(k limitKey, now time.Time) ([]limitKey, bool) {
