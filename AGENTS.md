@@ -106,6 +106,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 
 Settled choices; reviewers shouldn't re-raise them.
 
+- **Comparing sites over HTTP uses the admin token** (2026-11-22): `api/compare.csv`, `api/survey.csv` and `api/addrs.csv` sit behind it like every route, with `--site` naming each deployment. No read-only or expiring token: the owner chose the least code. If one is ever added, it needs its own allowlist of GET routes, never `authorized()`: the CSRF token is in the public page.
 - **Looking glass = Investigate, owner only** (2026-11-22): rounds 10 to 250 (`rounds=`, the dashboard's default 200) and a *Ping summary* report, for pasting into a datacenter ticket. No page or token for third parties (it would be the first route without the admin token, and only traces outward anyway), no TCP-only mode (NOCs expect ICMP). TCP takes one port per trace (`port=`, default 443): a port other than 443 is its own trace named `host:<host>:<port>` (its own series and slot), so 443's history never mixes with it; no ranges, so still no port scan (SECURITY.md).
 - **`api/probes` "likely dropped"** is TCP probes of 1000 to 1400 ms: a SYN resent after a 1 s initial RTO. It is labelled as likely, not proven (nothing records the retransmit, and Windows may resend at 3 s, which is a timeout).
 - **`api/probes` has no gaps.** `api/panel`'s per-bucket `gap` already says when fyisp wasn't measuring.

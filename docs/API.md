@@ -36,6 +36,7 @@ Every route the dashboard serves, the `/metrics` series and the `fyisp export` C
 | GET | `api/speed` | speed tests: summary, rows, windows, tests over time (`part=series`, `part=tests`), queue, running test | [SPEEDTEST-API.md](SPEEDTEST-API.md) |
 | POST | `api/speed/run`, `api/speed/cancel`, `api/speed/config` | the speed-test controls | [SPEEDTEST-API.md](SPEEDTEST-API.md) |
 | GET | `api/storage` | storage tests: the targets, their keys' state and last checks, the live campaigns, history and notices; `?part=` live, campaigns, campaign, timings, round, attempts, estimate | [STORAGE-API.md](STORAGE-API.md) |
+| GET | `api/compare.csv`, `api/survey.csv`, `api/addrs.csv` | comparing sites: a row per target, kind and hour, and the path survey's and resolved addresses' exports | [below](#get-apicomparecsv-apisurveycsv-and-apiaddrscsv) |
 | GET | `api/storage/report` | a storage campaign as a Markdown report or a CSV of its attempts | [STORAGE-API.md](STORAGE-API.md) |
 | POST | `api/storage/target/add`, `…/update`, `…/delete`, `…/forget-keys`, `api/storage/check` | add, change and remove storage targets; check one | [STORAGE-API.md](STORAGE-API.md) |
 | POST | `api/storage/run`, `api/storage/campaign/start`, `…/stop`, `…/pause`, `…/resume`, `…/keys` | storage campaigns | [STORAGE-API.md](STORAGE-API.md) |
@@ -47,13 +48,24 @@ Every route the dashboard serves, the `/metrics` series and the `fyisp export` C
 No parameters. `Status` in `internal/web/web.go`:
 
 ```json
-{"version": "v0.11.0", "started": "2026-10-15T13:39:54Z", "caps": {"icmp": "udp"}, "targets": 28, "ready": 28,
+{"site": "mumbai-dc1", "profile": "all", "now": "2026-10-15T14:02:11Z",
+ "version": "v0.11.0", "started": "2026-10-15T13:39:54Z", "caps": {"icmp": "udp"}, "targets": 28, "ready": 28,
  "store": {"file_bytes": 1048576, "oldest": "…", "last_flush": "…", "buffered_bytes": 4096}}
 ```
 
-`caps.icmp` is `udp`, `raw`, `iphlpapi` or `unavailable` (then `icmp_hint` says how to enable it). `store` may add `last_flush_err`, `dropped` and `rejected`.
+`site` is `--site` (left out when unset), `profile` the profile's name and `now` the server's clock: before comparing sites, check they run the same `version` and `profile`, with clocks in step. `caps.icmp` is `udp`, `raw`, `iphlpapi` or `unavailable` (then `icmp_hint` says how to enable it). `store` may add `last_flush_err`, `dropped` and `rejected`.
 
 With `--path-survey`, `survey` says how the [path survey](COMPARING-SITES.md) is doing (`trace.SurveyStatus`): `{"state", "targets", "covered", "interval_s", "last_round"}`. `state` is `first_pass` until every target has been tried since the start (one whose name doesn't resolve counts), then `on`; `unavailable` when the tracer could not start (no ICMP socket, see the README's *ICMP permissions*, or no TCP traces on this OS); `off` once it stopped. `covered` counts the targets tried since the start.
+
+### GET `api/compare.csv`, `api/survey.csv` and `api/addrs.csv`
+
+For [comparing sites](COMPARING-SITES.md) over HTTP, with the admin token like every route. Parameters: `from` and `to` (default `now-24h` and `now`; also RFC 3339 times such as `2026-12-01T13:00:00Z`, as `fyisp export` takes; a span over 7 days is shortened from the start; every hour that starts in it is included in full), and for `compare.csv` and `survey.csv` `targets` (comma-separated names; unlike `api/panel`, each name is not percent-decoded a second time; unknown ones are left out). The file is named after the site (`<site>-compare.csv`, or `fyisp-…` without `--site`).
+
+`api/compare.csv` has a row per TCP and HTTPS target, kind and UTC hour that starts in the range: `site, hour, target, kind, provider, city, country, geo, tags` (`;`-joined), the hour's TCP or HTTPS connects (`n`, `lost`, `loss` as a fraction, `min_ms`, `p50_ms` (the lower median), `p95_ms`, `max_ms`, `mean_ms`), `complete` (`0` for the hour still running), and from the [path survey](COMPARING-SITES.md) (empty for an hour without it): `dest_ips` (the hour's destination addresses, most rounds first, `;`-joined), `as_path` (the networks past your provider on the main path: at each TTL the router that answered most, its AS number, repeats folded; space-separated), `survey_rounds` and `survey_reached`. About 34,000 rows (about 8 MB, 0.6 MB compressed) a day for `--profile all`: a week is about 56 MB, so send `Accept-Encoding: gzip` (`curl --compressed`). The current hour's survey columns may lag a minute (the survey is written to disk every minute).
+
+`api/survey.csv` and `api/addrs.csv` are the CSVs of `fyisp export --survey` and `--addrs` ([below](#fyisp-export)).
+
+One of these runs at a time: another gets 429 `busy` with `Retry-After`. A CSV over 64 MiB is refused with 413 `too_large` (ask for a shorter range or fewer targets): the response is built before it is sent, so it is never cut short, and sending it may take up to 5 minutes. A day of `survey.csv` with `--profile all` is about 60 MB: ask for a day at a time, or name the targets.
 
 ### GET `api/profile`
 

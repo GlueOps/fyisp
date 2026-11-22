@@ -388,10 +388,10 @@ IMAGE=ghcr.io/glueops/fyisp:$(curl -fsSL -o /dev/null -w '%{url_effective}' http
 tok=$(cat ~/.fyisp-token) && echo "$IMAGE" && docker pull "$IMAGE" && docker rm -f fyisp && \
 FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey --site site-a
 ```
 
-Keep the options you started it with (a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
+Keep the options you started it with (this server's `--site`, a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
 
 **Linux (systemd).** Download and check the new binary, replace the old one and restart:
 
@@ -468,14 +468,14 @@ To uninstall, stop fyisp, then delete its data directory and the binary. The lau
 
 ## On a server (datacenter or office)
 
-To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker, with everything on that a server needs: every target of the catalog (`--profile all`, about 1,400) and the path survey (`--path-survey`: a TCP traceroute to every target every 15 minutes, kept hour by hour with the address each target resolved to, to tell GeoDNS, anycast, routing and congestion apart):
+To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker, with everything on that a server needs: every target of the catalog (`--profile all`, about 1,400) and the path survey (`--path-survey`: a TCP traceroute to every target every 15 minutes, kept hour by hour with the address each target resolved to, to tell GeoDNS, anycast, routing and congestion apart). Give each server its own `--site` name (here `site-a`), which every comparison row carries:
 
 ```sh
 (umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
 IMAGE=ghcr.io/glueops/fyisp:v0.17.0 # x-release-please-version
 FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey --site site-a
 ```
 
 - **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
@@ -494,7 +494,7 @@ Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token, the
 ```sh
 sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
 sudo mkdir -p /etc/systemd/system/fyisp.service.d
-printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' \
+printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' 'Environment=FYISP_SITE=site-a' \
   | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
 sudo systemctl daemon-reload && sudo systemctl restart fyisp
 ```

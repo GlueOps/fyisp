@@ -86,7 +86,10 @@ type Deps struct {
 	// CustomProfile: the profile is a --config file (an off tile is turned
 	// on with a tile: tag there, not with --profile).
 	CustomProfile bool
-	Log           *slog.Logger
+	// Site names this deployment (--site) in api/status and the
+	// comparison CSVs; "" when unset.
+	Site string
+	Log  *slog.Logger
 
 	firsts *firstCache // set by the handlers; nil queries the store each time
 }
@@ -101,6 +104,12 @@ type TilesSource interface {
 
 // Status is what /api/status reports.
 type Status struct {
+	// Site is --site ("": unset), Profile the profile's name and Now the
+	// server's clock: what a comparison checks first (same release and
+	// profile, clocks in step).
+	Site    string      `json:"site,omitempty"`
+	Profile string      `json:"profile"`
+	Now     time.Time   `json:"now"`
 	Version string      `json:"version"`
 	Started time.Time   `json:"started"`
 	Caps    probe.Caps  `json:"caps"`
