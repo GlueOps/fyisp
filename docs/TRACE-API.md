@@ -2,7 +2,7 @@
 
 Part of the [API index](API.md).
 
-An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for the **rounds** asked for (10 to 250: about 25 s to 10.4 minutes; the dashboard asks for 200 unless you pick another, the API defaults to 250), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected.
+An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for the **rounds** asked for (10 to 250: about 25 s to 10.4 minutes; the dashboard asks for 200 unless you pick another, the API defaults to 250), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected, nor is the path survey (`--path-survey`, see [COMPARING-SITES.md](COMPARING-SITES.md)), which keeps no route of its own here.
 
 ## Probe types
 

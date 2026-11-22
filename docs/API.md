@@ -53,6 +53,8 @@ No parameters. `Status` in `internal/web/web.go`:
 
 `caps.icmp` is `udp`, `raw`, `iphlpapi` or `unavailable` (then `icmp_hint` says how to enable it). `store` may add `last_flush_err`, `dropped` and `rejected`.
 
+With `--path-survey`, `survey` says how the [path survey](COMPARING-SITES.md) is doing (`trace.SurveyStatus`): `{"state", "targets", "covered", "interval_s", "last_round"}`. `state` is `first_pass` until every target has been tried since the start (one whose name doesn't resolve counts), then `on`; `unavailable` when the tracer could not start (no ICMP socket, see the README's *ICMP permissions*, or no TCP traces on this OS); `off` once it stopped. `covered` counts the targets tried since the start.
+
 ### GET `api/profile`
 
 No parameters. `profileJSON` in `internal/web/api.go`: `name`, `features` (`trace`, `baselines`, `speed`, `storage`), `groups` (`id`, `title`) and `targets` (`name`, `group`, `kinds`, and when they apply `layer`, `trace`, the provider and location fields and `tags`).
@@ -147,7 +149,7 @@ The Go runtime's `go_*` and `process_*` series are there too.
 
 ## `fyisp export`
 
-`fyisp export` writes the stored samples (or with `--speedtests` the speed tests, with `--storage` the storage tests' attempts) as CSV to stdout, or to a file with `-o` (created with mode 0600). It reads what the running fyisp has written to disk, which it does every minute. Flags: `--from` and `--to` (RFC 3339, `YYYY-MM-DD`, or an age like `24h` or `7d`; default all the data), `--target` and `--kind` (`https`, `tcp`, `icmp`, `trace`, `trace_tcp`, `trace_udp`, `udp`, `udp_jitter`, `udp_loss`), each repeatable or comma-separated, for samples only (refused with `--speedtests` and `--storage`), and `--data-dir`. In Docker: `docker exec fyisp /fyisp export --from 7d > fyisp.csv`.
+`fyisp export` writes the stored samples (or with `--speedtests` the speed tests, with `--storage` the storage tests' attempts, with `--addrs` the addresses targets resolved to, with `--survey` the path survey; one at a time) as CSV to stdout, or to a file with `-o` (created with mode 0600). It reads what the running fyisp has written to disk, which it does every minute. Flags: `--from` and `--to` (RFC 3339, `YYYY-MM-DD`, or an age like `24h` or `7d`; default all the data), `--target` (samples and `--survey`) and `--kind` (`https`, `tcp`, `icmp`, `trace`, `trace_tcp`, `trace_udp`, `udp`, `udp_jitter`, `udp_loss`; samples only), each repeatable or comma-separated, and `--data-dir`. In Docker: `docker exec fyisp /fyisp export --from 7d > fyisp.csv` (without `-t`, and without `-o`: the container can't write to its working directory). With systemd: `sudo fyisp export --data-dir /var/lib/fyisp …`. With the launcher, which keeps no binary: `curl … | sh -s -- export --from 7d > fyisp.csv`.
 
 **Samples**, one row per stored slot:
 
@@ -174,3 +176,24 @@ campaign,round,target,target_name,phase,op,n,at,class,group,http_status,s3_code,
 ```
 
 `target` is the target's id and `target_name` its name as the campaign started; the export never opens the targets file, so it has no hosts, buckets or keys. `edge_prefix` is the provider address's /24. A `target_name`, `request_id` or `host_id` that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet reads it as text. `campaign` and `round` are ids; the other fields are the Attempt's in [STORAGE-API.md](STORAGE-API.md#campaign-reads), without `request_id_header`.
+
+**Addresses** (`--addrs`), one row per period a host's probes used one address, by host and start:
+
+```
+host,ip,answers,first_seen,last_seen
+github.com,140.82.121.4,1,2026-09-26T12:00:03.114Z,2026-09-26T18:41:03.502Z
+```
+
+They are kept only with `--path-survey`. A host keeps its address while DNS still returns it (round-robin DNS doesn't start a new period at every lookup); `answers` is how many addresses the last lookup returned. A period's `last_seen` is its last lookup, written at most 10 minutes late; a restart starts a new period. Only public addresses are kept, and none in your provider's network (it could be your own), so none until fyisp has found your provider.
+
+**Path survey** (`--survey`), one row per hour, target, destination address, TTL and router, plus one per TTL for its unanswered probes:
+
+```
+hour,target,host,port,dest_ip,hops_via,rounds,fixed_flow,reached,complete,ttl,status,ip,asn,owner,rdns,n,min_ms,mean_ms,max_ms
+2026-09-26T12:00:00.000Z,github,github.com,443,140.82.121.4,tcp,4,4,4,4,1,yours,,,your network,,4,0.3,0.4,0.6
+2026-09-26T12:00:00.000Z,github,github.com,443,140.82.121.4,tcp,4,4,4,4,2,provider,,64500,your provider,,4,1.9,2.2,2.8
+2026-09-26T12:00:00.000Z,github,github.com,443,140.82.121.4,tcp,4,4,4,4,5,answered,203.0.113.9,3356,LEVEL3,ae1.par.example.net,3,8.2,8.6,9.1
+2026-09-26T12:00:00.000Z,github,github.com,443,140.82.121.4,tcp,4,4,4,4,5,silent,,,,,1,,,
+```
+
+`rounds`, `fixed_flow` (rounds sent as one flow, Linux), `reached` (the destination answered) and `complete` (no TTL left out for the router cap; a capped TTL may instead take the same router's answer to another target's round within a minute) count the hour's rounds to `dest_ip`, which is empty for a target in your own or your provider's network (and, with every hop `provider`, for every target while fyisp hasn't found your provider yet: shortly after a start or a network change, or always without ICMP). `status` is `answered` (with `ip`; the destination is the last TTL's), `yours` (your network), `provider` (your provider's network, with its `asn`), `private` (a private address past your provider) or `silent` (`n` unanswered probes); only `answered` has an address. `hops_via` is `icmp` where the routers are found with ICMP (Windows). `owner` and `rdns` are what fyisp knows of the router now. RTTs are in milliseconds over the `n` answers. A `host`, `owner` or `rdns` (in `--addrs`, `host`) that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, as in the storage export. Comparing two sites from these files: [COMPARING-SITES.md](COMPARING-SITES.md).

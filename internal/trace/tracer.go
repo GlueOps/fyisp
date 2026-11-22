@@ -90,6 +90,10 @@ type Options struct {
 	// (typically netinfo.Watcher.Current). Nil: those targets are not traced.
 	Path func() netinfo.Path
 
+	// Survey, when set, runs the path survey of the profile's TCP and
+	// HTTPS targets while Run runs (see survey.go).
+	Survey *Survey
+
 	// open opens the prober (tests: a fake). Default hops.Open.
 	open func() (hops.Prober, error)
 	// support is what the prober can do with TCP and UDP (tests: the
@@ -267,6 +271,9 @@ func (tr *tracer) Run(ctx context.Context, p *model.Profile, sink Sink) error {
 	}
 	pr, err := tr.o.open()
 	if err != nil {
+		if tr.o.Survey != nil {
+			tr.o.Survey.Unavailable()
+		}
 		return fmt.Errorf("trace: TTL-limited ICMP unavailable: %w", err)
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -295,6 +302,16 @@ func (tr *tracer) Run(ctx context.Context, p *model.Profile, sink Sink) error {
 			n++
 			tr.startLoop(st)
 		}
+	}
+	if sv := tr.o.Survey; sv != nil && supports(tr.o.support(), model.TraceTCP) {
+		ts := SurveyTargets(p)
+		tr.wg.Add(1)
+		go func() {
+			defer tr.wg.Done()
+			tr.runSurvey(ctx, sv, ts)
+		}()
+	} else if sv != nil {
+		sv.Unavailable()
 	}
 	tr.mu.Unlock()
 	tr.o.Log.Info("tracing", "targets", n, "interval", tr.o.Interval, "max_hops", tr.o.MaxHops,

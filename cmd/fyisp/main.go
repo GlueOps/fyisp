@@ -40,6 +40,7 @@ import (
 	"github.com/glueops/fyisp/internal/probe"
 	"github.com/glueops/fyisp/internal/profile"
 	"github.com/glueops/fyisp/internal/storage"
+	"github.com/glueops/fyisp/internal/store"
 	"github.com/glueops/fyisp/internal/tiles"
 	"github.com/glueops/fyisp/internal/trace"
 	"github.com/glueops/fyisp/internal/verdict"
@@ -103,6 +104,7 @@ type config struct {
 	adminToken  string
 	allowHosts  hostList
 	tunnel      bool
+	pathSurvey  bool
 	pprofAddr   string
 	logFormat   string
 	logLevel    string
@@ -167,7 +169,8 @@ func parseFlags(args []string) (config, error) {
 	fs.BoolVar(&c.openBrowser, "open-browser", true, "open the dashboard in a browser at startup (interactive terminals only)")
 	// No env default: flag's usage prints defaults, and this one is a secret.
 	fs.StringVar(&c.adminToken, "admin-token", "", "token the dashboard and its API require (at least 32 letters, digits or - . _ ~, e.g. from openssl rand -hex 16); change it to sign every browser out (default: $FYISP_ADMIN_TOKEN, else a new random one at each start, shown as a link in the log)")
-	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL"), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
+	fs.BoolVar(&c.tunnel, "tunnel", envBool("FYISP_TUNNEL", false), "also serve the dashboard over HTTPS on a Cloudflare quick tunnel (https://<random>.trycloudflare.com, behind the admin token) (default: $FYISP_TUNNEL, else false)")
+	fs.BoolVar(&c.pathSurvey, "path-survey", envBool("FYISP_PATH_SURVEY", false), "trace the TCP path to every TCP and HTTPS target every 15 minutes, to compare this site with another (fyisp export --survey); see docs/OPERATORS.md (default: $FYISP_PATH_SURVEY, else false)")
 	fs.Var(&c.allowHosts, "allow-host", "extra `name` the dashboard may be opened as, e.g. nas.local or nas.local:3000 (repeatable or comma-separated)")
 	fs.StringVar(&c.pprofAddr, "pprof", "", "serve Go pprof on this loopback address (debugging)")
 	fs.StringVar(&c.logFormat, "log-format", "auto", "log format: auto, text or json")
@@ -205,19 +208,26 @@ func parseFlags(args []string) (config, error) {
 			return c, err
 		}
 	}
-	if v := os.Getenv("FYISP_TUNNEL"); v != "" {
-		if _, err := strconv.ParseBool(v); err != nil {
-			return c, fmt.Errorf("FYISP_TUNNEL=%q: want 1, true, 0 or false", v)
+	for _, name := range []string{"FYISP_TUNNEL", "FYISP_PATH_SURVEY"} {
+		if v := os.Getenv(name); v != "" {
+			if _, err := strconv.ParseBool(v); err != nil {
+				return c, fmt.Errorf("%s=%q: want 1, true, 0 or false", name, v)
+			}
 		}
 	}
 	envProfiles(&c.profiles, c.configPath)
 	return c, nil
 }
 
-// envBool is an environment variable's boolean (unset or not a boolean:
-// false), for flags a container or NAS template sets more easily that way.
-func envBool(name string) bool {
-	b, _ := strconv.ParseBool(os.Getenv(name))
+// envBool is an environment variable's boolean (unset: def; not a
+// boolean: false, which parseFlags rejects), for flags a container or NAS
+// template sets more easily that way.
+func envBool(name string, def bool) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	b, _ := strconv.ParseBool(v)
 	return b
 }
 
@@ -308,9 +318,15 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 	ni := netinfo.New(netinfo.Options{Log: log})
 	// Traceroutes: always-on for profile targets marked trace, on demand
 	// (Investigate) for any target. Hop owners come from the built-in table.
-	tr := trace.New(trace.Options{Log: log, Lookup: asn.Lookup, Path: ni.Current})
+	// The path survey reports each target's hour to the store.
+	var st *store.SQLite
+	var survey *trace.Survey
+	if c.pathSurvey {
+		survey = trace.NewSurvey(trace.SurveyOptions{Classify: surveyClassify(ni.Current), Sink: func(h model.SurveyHour) { st.ObserveSurvey(h) }})
+	}
+	tr := trace.New(trace.Options{Log: log, Lookup: asn.Lookup, Path: ni.Current, Survey: survey})
 
-	st, err := openStore(dir, prof, tr.Interval, log)
+	st, err = openStore(dir, prof, tr.Interval, log)
 	if err != nil {
 		var locked *lockedError
 		if errors.As(err, &locked) {
@@ -344,7 +360,11 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 			log.Warn("network path discovery stopped", "err", err)
 		}
 	}()
-	runner := probe.New(probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current})
+	po := probe.Options{Log: log, UserAgent: "fyisp/" + version, Path: ni.Current}
+	if survey != nil {
+		po.OnResolve = keepAddr(st, ni.Current)
+	}
+	runner := probe.New(po)
 	// Speed tests: the load tap keeps loaded ICMP samples for latency
 	// under load; the windows are recorded for the charts.
 	speed, tap, wins, err := newSpeed(c, prof, st, mc, ni.Current, log)
@@ -373,7 +393,12 @@ func run(ctx context.Context, stop context.CancelFunc, c config) error {
 		CustomProfile: c.configPath != "",
 		Store:         st,
 		Status: func() web.Status {
-			return web.Status{Version: version, Started: started, Caps: caps, Targets: len(warm.Only), Ready: warm.Ready()}
+			s := web.Status{Version: version, Started: started, Caps: caps, Targets: len(warm.Only), Ready: warm.Ready()}
+			if survey != nil {
+				ss := survey.Status()
+				s.Survey = &ss
+			}
+			return s
 		},
 		Metrics:   mc.Handler(),
 		Verdict:   eng,
