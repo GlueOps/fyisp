@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/GlueOps/fyisp/compare/v0.18.4...v0.19.0) (2026-11-22)
+
+
+### Features
+
+* **skill:** add the compare-sites agent skill ([#175](https://github.com/GlueOps/fyisp/issues/175)) ([a4bf2e7](https://github.com/GlueOps/fyisp/commit/a4bf2e74c82efc678e7b6d5ac534a65eb8cf65b8))
+
 ## [0.18.4](https://github.com/GlueOps/fyisp/compare/v0.18.3...v0.18.4) (2026-11-22)
 
 
