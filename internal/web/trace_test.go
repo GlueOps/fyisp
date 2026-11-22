@@ -210,6 +210,7 @@ func TestTraceNil(t *testing.T) {
 type traceResp struct {
 	Target     string `json:"target"`
 	Host       string `json:"host"`
+	Port       int    `json:"port"`
 	IntervalMs int64  `json:"interval_ms"`
 	Traced     bool   `json:"traced"`
 	From       int64  `json:"from"`

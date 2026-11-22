@@ -215,6 +215,7 @@ type target struct {
 	t     model.Target
 	mode  model.TraceMode
 	host  string
+	port  int     // TCP destination port of a host:name:port trace (0: the mode's own)
 	phase float64 // fraction of the interval: spreads targets
 	idx   int     // profile order: staggers re-validation rounds
 	adhoc bool    // a host outside the profile (model.HostTarget): public addresses only
@@ -367,11 +368,14 @@ func (tr *tracer) Investigate(name string, mode model.TraceMode, rounds int) (In
 		return nil, errNotRunning
 	}
 	st := tr.targets[tkey{name, mode}]
-	if host, ok := model.HostOf(name); ok {
+	if host, port, ok := model.HostPortOf(name); ok {
 		// A host outside the profile: a temporary target while it has
 		// sessions. Its addresses are checked at every resolution (dest).
+		if port != 0 && mode != model.TraceTCP {
+			return nil, fmt.Errorf("trace: a port is for TCP traces only")
+		}
 		if st == nil {
-			st = &target{t: model.Target{Name: name, Host: host}, mode: mode, host: host, adhoc: true,
+			st = &target{t: model.Target{Name: name, Host: host}, mode: mode, host: host, port: port, adhoc: true,
 				wake: make(chan struct{}, 1), sessions: map[uint64]*session{}}
 			tr.targets[tkey{name, mode}] = st
 			delete(tr.gone, tkey{name, mode})
@@ -1065,7 +1069,7 @@ func (tr *tracer) send(ctx context.Context, p *plan, ttl int, at time.Time) (hop
 	tr.mu.Lock()
 	pr := tr.prober
 	tr.mu.Unlock()
-	h, err := tr.probe(ctx, pr, p.st.mode, p.dst, ttl)
+	h, err := tr.probe(ctx, pr, p.st.mode, p.st.port, p.dst, ttl)
 	if h.Addr.IsValid() {
 		h.Addr = h.Addr.Unmap()
 	}
@@ -1079,8 +1083,8 @@ func (tr *tracer) send(ctx context.Context, p *plan, ttl int, at time.Time) (hop
 	return r, at
 }
 
-// probe sends one probe of mode to dst with ttl.
-func (tr *tracer) probe(ctx context.Context, pr hops.Prober, mode model.TraceMode, dst netip.Addr, ttl int) (hops.Hop, error) {
+// probe sends one probe of mode to dst with ttl, to port (0: the mode's own).
+func (tr *tracer) probe(ctx context.Context, pr hops.Prober, mode model.TraceMode, port int, dst netip.Addr, ttl int) (hops.Hop, error) {
 	if mode == model.TraceICMP {
 		return pr.Probe(ctx, dst, ttl, tr.o.Timeout)
 	}
@@ -1092,7 +1096,10 @@ func (tr *tracer) probe(ctx context.Context, pr hops.Prober, mode model.TraceMod
 	if mode == model.TraceTCP {
 		t = hops.TCP
 	}
-	return tp.ProbeTransport(ctx, t, netip.AddrPortFrom(dst, uint16(mode.Port())), ttl, tr.o.Timeout)
+	if port == 0 {
+		port = mode.Port()
+	}
+	return tp.ProbeTransport(ctx, t, netip.AddrPortFrom(dst, uint16(port)), ttl, tr.o.Timeout)
 }
 
 // skipped reports whether a TTL in [from, to) was not probed.

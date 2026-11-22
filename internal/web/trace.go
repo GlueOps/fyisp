@@ -278,9 +278,9 @@ func (s *server) traced() map[string]bool {
 }
 
 // knownTarget reports a profile target name, or the name of a trace of a
-// host outside the profile (model.HostTarget, normalised).
+// host outside the profile (model.HostPortTarget, normalised).
 func (s *server) knownTarget(name string) bool {
-	if name == "" || len(name) > len(model.HostTargetPrefix)+maxHostLen {
+	if name == "" || len(name) > len(model.HostTargetPrefix)+maxHostLen+len(":65535") {
 		return false
 	}
 	if h, ok := model.HostOf(name); ok {
@@ -423,7 +423,11 @@ func (s *server) trace(ctx context.Context, target string, mode model.TraceMode,
 		}
 	}
 
-	out := &traceJSON{Target: target, Mode: mode.String(), Port: mode.Port(), Host: s.traceHost(target),
+	port := mode.Port()
+	if _, p, _ := model.HostPortOf(target); p != 0 && mode == model.TraceTCP {
+		port = p
+	}
+	out := &traceJSON{Target: target, Mode: mode.String(), Port: port, Host: s.traceHost(target),
 		Traced: mode == model.TraceICMP && s.traced()[target], IntervalMs: s.d.traceInterval().Milliseconds(),
 		From: p.from.UnixMilli(), To: p.to.UnixMilli(), Now: now.UnixMilli(), Hops: []hopStatJSON{}, Changes: changesJSON(r, changes),
 		Modes: s.d.Trace.Modes()}
@@ -820,12 +824,14 @@ type invRequest struct {
 	target, host string
 	mode         model.TraceMode
 	rounds       int
+	port         int // TCP destination port (0: none asked; 443)
 }
 
 // investigateRequest applies the request checks: POST, no body, exactly
 // one target or host parameter, at most one mode (icmp, tcp, udp;
-// default icmp) and at most one rounds (MinInvestigateRounds to
-// InvestigateRounds; default InvestigateRounds). It writes the refusal and returns false on failure. The
+// default icmp), at most one rounds (MinInvestigateRounds to
+// InvestigateRounds; default InvestigateRounds) and, for tcp, at most one
+// port (1 to 65535; default 443). It writes the refusal and returns false on failure. The
 // response is never cached. The handler then checks the origin, and
 // investigate the target name or the host, and the mode.
 func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (invRequest, bool) {
@@ -850,8 +856,8 @@ func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (inv
 		return invRequest{}, false
 	}
 	q := r.URL.Query()
-	if err := checkParams(q, "target", "host", "mode", "rounds"); err != nil || len(q["target"])+len(q["host"]) != 1 || q.Get("target")+q.Get("host") == "" {
-		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "want exactly one target or host parameter, and at most one mode and rounds", 0)
+	if err := checkParams(q, "target", "host", "mode", "rounds", "port"); err != nil || len(q["target"])+len(q["host"]) != 1 || q.Get("target")+q.Get("host") == "" {
+		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "want exactly one target or host parameter, and at most one mode, rounds and port", 0)
 		return invRequest{}, false
 	}
 	mode, err := parseMode(q)
@@ -868,7 +874,16 @@ func (s *server) investigateRequest(w http.ResponseWriter, r *http.Request) (inv
 		}
 		rounds = n
 	}
-	return invRequest{target: q.Get("target"), host: q.Get("host"), mode: mode, rounds: rounds}, true
+	port := 0
+	if _, ok := q["port"]; ok {
+		n, err := strconv.Atoi(q.Get("port"))
+		if err != nil || n < 1 || n > 65535 {
+			writeInvErr(w, r, http.StatusBadRequest, "bad_request", "port must be 1 to 65535, with mode=tcp", 0)
+			return invRequest{}, false
+		}
+		port = n
+	}
+	return invRequest{target: q.Get("target"), host: q.Get("host"), mode: mode, rounds: rounds, port: port}, true
 }
 
 // ---------- hosts outside the profile ----------
@@ -969,8 +984,26 @@ func modeAvailable(src TraceSource, mode model.TraceMode) bool {
 // target and the error, never the client.
 func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invRequest) {
 	target, mode := q.target, q.mode
-	if h, ok := model.HostOf(target); ok && q.host == "" {
+	if h, port, ok := model.HostPortOf(target); ok && q.host == "" {
 		q.host = h
+		if q.port == 0 {
+			q.port = port
+		}
+	}
+	if q.port != 0 && mode != model.TraceTCP {
+		writeInvErr(w, r, http.StatusBadRequest, "bad_request", "a port is for TCP traces only", 0)
+		return
+	}
+	// A profile target to another port is a trace of its host to that port.
+	if q.port != 0 && q.port != model.TraceTCPPort && q.host == "" {
+		if !s.knownTarget(target) {
+			writeInvErr(w, r, http.StatusNotFound, "unknown_target", "unknown target", 0)
+			return
+		}
+		if q.host = s.traceHost(target); q.host == "" {
+			writeInvErr(w, r, http.StatusBadRequest, "bad_request", "this target has no host to trace to another port", 0)
+			return
+		}
 	}
 	if q.host != "" {
 		h, err := normHost(q.host)
@@ -978,7 +1011,7 @@ func (s *server) investigate(w http.ResponseWriter, r *http.Request, q invReques
 			writeInvErr(w, r, http.StatusBadRequest, "bad_host", err.Error(), 0)
 			return
 		}
-		target = model.HostTarget(h)
+		target = model.HostPortTarget(h, q.port)
 	} else if !s.knownTarget(target) {
 		writeInvErr(w, r, http.StatusNotFound, "unknown_target", "unknown target", 0)
 		return

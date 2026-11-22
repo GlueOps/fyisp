@@ -22,7 +22,7 @@ import {
 import { Home, firstHome } from './home.js';
 import { PatternFilter, cleanPattern, MAX_PATTERN } from './filter.js';
 import { Speed } from './speed.js';
-import { mtrText, mtrJSON, mtrCSV, pingText, tracerouteText, mtrLabel, mtrCells, mtrCommand, pathpingCommand } from './invreport.js';
+import { mtrText, mtrJSON, mtrCSV, pingText, tracerouteText, mtrLabel, mtrCells, mtrCommand, pathpingCommand, PORT } from './invreport.js';
 
 const uPlot = /** @type {any} */ (window).uPlot;
 
@@ -1317,18 +1317,18 @@ const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'Th
   ['Loss%', 'loss', 'Share of probes this hop did not answer'], ['Snt', 'num', 'Probes sent'], ['Last', 'num', 'Newest round-trip time (ms)'], ['Avg', 'num', 'Average round-trip time (ms)'],
   ['Best', 'num', 'Lowest round-trip time (ms)'], ['Wrst', 'num', 'Highest round-trip time (ms)'], ['StDev', 'num', 'Standard deviation of the round-trip times (ms)']];
 // Trace modes: the picker's label, and what a probe is, for the report and the copy.
-const MODE_LABEL = { icmp: 'ICMP', tcp: 'TCP 443', udp: 'UDP' };
+const MODE_LABEL = { icmp: 'ICMP', tcp: 'TCP', udp: 'UDP' };
 /** Why a mode is off, from /api/trace's reason code. @param {TraceMode} m */
 function modeReason(m) {
   const what = m.mode === 'udp' ? 'UDP' : m.mode === 'icmp' ? 'ICMP' : 'TCP';
   if (m.reason === 'windows_firewall') return `${what} traces aren’t available on Windows: its firewall drops the routers’ replies to them.`;
   return `${what} traces aren’t available on this system.`;
 }
-/** What a mode's probes are, in a sentence. @param {TraceMode|undefined} m */
-function modeNote(m) {
+/** What a mode's probes are, in a sentence (port: TCP's). @param {TraceMode|undefined} m @param {number} [port] */
+function modeNote(m, port) {
   if (!m || m.mode === 'icmp') return '';
-  if (m.mode === 'tcp' && m.hops_via === 'icmp') return 'On Windows the routers are found with ICMP (its firewall drops their replies to TCP); each probe is an ICMP echo and a TCP SYN to port 443 with the same TTL, and the destination answers the TCP one.';
-  if (m.mode === 'tcp') return 'TCP SYNs to port 443, like a web connection; each is closed with a reset, so no connection is left open.';
+  if (m.mode === 'tcp' && m.hops_via === 'icmp') return `On Windows the routers are found with ICMP (its firewall drops their replies to TCP); each probe is an ICMP echo and a TCP SYN to port ${port} with the same TTL, and the destination answers the TCP one.`;
+  if (m.mode === 'tcp') return `TCP SYNs to port ${port}${port === PORT.tcp ? ', like a web connection' : ''}; each is closed with a reset, so no connection is left open.`;
   return `UDP datagrams to port ${m.port || 33434}; the destination answers with "port unreachable".`;
 }
 const MORE_COLS = [['P95', 'num', '95th percentile round-trip time (ms)'], ['Javg', 'num', 'Jitter: average difference between consecutive round-trip times (ms)'],
@@ -1346,6 +1346,11 @@ function targetInfo(/** @type {string} */ name) { return allTargets.find((t) => 
 const HOST_PREFIX = 'host:';
 /** The host of a "host:" trace name, else ''. @param {string} name */
 function hostOf(name) { return name.startsWith(HOST_PREFIX) ? name.slice(HOST_PREFIX.length) : ''; }
+/** A host trace's host and TCP port (host:example.com:22; port 0 when the name has none). @param {string} name */
+function hostPortOf(name) {
+  const s = hostOf(name), m = /^(.+):(\d+)$/.exec(s);
+  return m ? { host: m[1], port: Number(m[2]) } : { host: s, port: 0 };
+}
 
 /** The target the path panel and path-level incidents open: a traced anycast target, else any traced one. */
 function defaultTraceTarget() {
@@ -1488,6 +1493,15 @@ class Investigate {
     this.statusEl = h('span', { class: 'inv-status' });
     this.mode = 'icmp';
     this.modeSeg = h('div', { class: 'seg sm inv-modes', role: 'group', 'aria-label': 'Probe type' });
+    // TCP's destination port: 443 unless asked; another one traces the host to that port (host:name:port).
+    // A text box, not type=number: its arrows would start a trace at every step. It changes on Enter or blur.
+    this.port = PORT.tcp;
+    this.portFrom = { target: '', host: '' }; // the profile target a port's trace was started from, to go back to on 443
+    this.portIn = /** @type {HTMLInputElement} */ (h('input', { class: 'inv-port', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '5',
+      autocomplete: 'off', 'aria-label': 'TCP port', 'aria-describedby': 'inv-host-err', title: 'The TCP port to trace to (443 unless you pick another). Press Enter to trace it.', value: String(PORT.tcp) }));
+    this.portIn.addEventListener('change', () => this.setPort());
+    // Enter again after a refusal retries (no change event when the value is the same).
+    this.portIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.setPort(); });
     this.modeNoteEl = h('p', { class: 'muted small inv-mode-note' });
     const saved = Number(storageGet(INV_ROUNDS));
     this.rounds = ROUNDS.includes(saved) ? saved : 200;
@@ -1551,7 +1565,7 @@ class Investigate {
       this.invSay,
       h('div', { class: 'inv-head' },
         h('button', { class: 'btn', type: 'button', text: '← Dashboard', onclick: closeInvestigate }),
-        this.titleEl, this.picker, this.modeSeg, this.roundsSel, this.statusEl),
+        this.titleEl, this.picker, this.modeSeg, this.portIn, this.roundsSel, this.statusEl),
       this.hostForm,
       this.modeNoteEl,
       this.summary,
@@ -1616,8 +1630,13 @@ class Investigate {
     this.fillPicker();
     this.titleEl.textContent = 'Investigate';
     const t = targetInfo(target);
-    const host = hostOf(target);
+    const { host, port } = hostPortOf(target);
     if (host && document.activeElement !== this.hostIn) this.hostIn.value = host;
+    this.port = port || PORT.tcp;
+    if (document.activeElement !== this.portIn) this.portIn.value = String(this.port);
+    if (this.portIn.hasAttribute('aria-invalid')) { this.portIn.removeAttribute('aria-invalid'); this.hostErr.textContent = ''; }
+    // Back to 443 returns to the profile target only from that target's own port traces.
+    if (!port && target !== this.portFrom.target) this.portFrom = { target: '', host: '' };
     this.wantStart = (!!t || !!host) && !this.alwaysOn();
     this.invIdle = this.wantStart && !!host;
     this.renderModes();
@@ -1633,7 +1652,7 @@ class Investigate {
   /** The modes this machine supports (from the last /api/trace; ICMP until then). @returns {TraceMode[]} */
   modes() { return (this.data && this.data.modes) || [{ mode: 'icmp', available: true }]; }
 
-  /** The ICMP | TCP 443 | UDP picker: unsupported modes are disabled, with the reason. */
+  /** The ICMP | TCP | UDP picker (TCP with its port box): unsupported modes are disabled, with the reason. */
   renderModes() {
     const ms = this.modes();
     this.modeSeg.replaceChildren(...['icmp', 'tcp', 'udp'].map((k) => {
@@ -1642,24 +1661,58 @@ class Investigate {
       const off = !!m && !m.available;
       return h('button', {
         type: 'button', text: MODE_LABEL[/** @type {'icmp'|'tcp'|'udp'} */ (k)], 'data-mode': k, 'aria-pressed': String(k === this.mode),
-        disabled: off || null, title: off ? modeReason(/** @type {TraceMode} */ (m)) : k === 'icmp' ? 'ICMP echo requests, like ping and mtr' : modeNote(m),
+        disabled: off || null, title: off ? modeReason(/** @type {TraceMode} */ (m)) : k === 'icmp' ? 'ICMP echo requests, like ping and mtr' : modeNote(m, this.port),
         onclick: () => this.setMode(k),
       });
     }).filter((x) => !!x));
     const cur = ms.find((x) => x.mode === this.mode);
     const off = ms.filter((x) => !x.available);
-    const lines = [modeNote(cur), ...off.map(modeReason)].filter(Boolean);
+    this.portIn.hidden = this.mode !== 'tcp' || !cur || !cur.available;
+    const lines = [modeNote(cur, this.port), ...off.map(modeReason)].filter(Boolean);
     this.modeNoteEl.textContent = lines.join(' ');
     this.modeNoteEl.hidden = !lines.length;
   }
 
-  /** Switches the probe type: a different trace of the same target. @param {string} m */
+  /** Switches the probe type: a different trace of the same target (a port's trace: of its host). @param {string} m */
   setMode(m) {
     if (m === this.mode) return;
     state.im = m;
+    // A refusal said under the boxes was about the other probe type.
+    this.hostErr.textContent = '';
+    this.hostIn.removeAttribute('aria-invalid');
+    const { host, port } = hostPortOf(this.target);
+    if (port && m !== 'tcp') { openInvestigate(HOST_PREFIX + host); return; }
     writeHash();
     this.open(this.target);
     this.load();
+  }
+
+  /**
+   * The port box changed: trace the shown target's host to that TCP port, as its own trace (host:name:port;
+   * 443 is host:name). Back to 443 from a profile target's port trace goes back to that target. The shown port
+   * changes only once the new trace opens (open()), so a refused one leaves the page as it was.
+   */
+  setPort() {
+    const n = Number(this.portIn.value);
+    if (!/^[0-9]+$/.test(this.portIn.value) || n < 1 || n > 65535) {
+      this.hostErr.textContent = 'The port must be a whole number from 1 to 65535.';
+      this.portIn.setAttribute('aria-invalid', 'true');
+      return;
+    }
+    this.portIn.removeAttribute('aria-invalid');
+    this.hostErr.textContent = '';
+    if (n === this.port) return;
+    // As the server names traces (normHost): lowercase, no trailing dot.
+    const host = (hostPortOf(this.target).host || (this.data && this.data.host) || '').toLowerCase().replace(/\.$/, '');
+    if (!host) {
+      this.hostErr.textContent = 'This target has no host to trace to another port.';
+      this.portIn.value = String(this.port);
+      return;
+    }
+    if (n === PORT.tcp && this.portFrom.target && this.portFrom.host === host) { openInvestigate(this.portFrom.target); return; }
+    if (!hostOf(this.target)) this.portFrom = { target: this.target, host };
+    this.hostIn.value = host;
+    this.traceHost(n);
   }
 
   close() { this.ctl?.abort(); }
@@ -1735,7 +1788,8 @@ class Investigate {
    * syntax, a non-public address, no address, the limits) is shown under
    * the box with the server's reason.
    */
-  async traceHost() {
+  /** @param {number} [port] TCP's, else the shown one's */
+  async traceHost(port = this.port) {
     const host = this.hostIn.value.trim();
     if (!host || this.poking) return;
     this.poking = true;
@@ -1744,9 +1798,10 @@ class Investigate {
     this.hostIn.removeAttribute('aria-invalid');
     try {
       /** @type {InvState} */
-      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ host, mode: this.mode, rounds: String(this.rounds) }), { method: 'POST', headers: invHeaders() }, 1);
+      const q = { host, mode: this.mode, rounds: String(this.rounds), ...(this.mode === 'tcp' ? { port: String(port) } : {}) };
+      const r = await fetchJSON('api/investigate?' + new URLSearchParams(q), { method: 'POST', headers: invHeaders() }, 1);
       this.poking = false;
-      this.hostIn.value = hostOf(r.target); // as the server normalised it
+      this.hostIn.value = hostPortOf(r.target).host; // as the server normalised it
       openInvestigate(r.target);
       this.wantStart = false;
       this.invIdle = false;
@@ -1787,7 +1842,7 @@ class Investigate {
     const prev = this.invState;
     this.invState = v || null;
     if (!v) return;
-    const how = this.mode === 'icmp' ? '' : ` with ${MODE_LABEL[/** @type {'tcp'|'udp'} */ (this.mode)]}`;
+    const how = this.mode === 'icmp' ? '' : this.mode === 'tcp' ? ` with TCP to port ${this.port}` : ' with UDP';
     const name = hostOf(v.target) || v.target;
     if (v.state === 'running' && (!prev || prev.state !== 'running' || prev.started_at !== v.started_at)) {
       this.invSay.textContent = `Tracing ${name}${how}: up to ${v.rounds_max} rounds.`;
@@ -2020,8 +2075,9 @@ class Investigate {
     }
     if (!rows.length) rows.push(h('tr', {}, h('td', { class: 'none muted', colspan: String(cols.length), text: 'No hops in this range.' })));
     this.tbody.replaceChildren(...rows);
-    // Copy mtr text's fallback box (no clipboard) follows the table, never shows older numbers.
-    if (!this.hopsTa.hidden) this.hopsTa.value = mtrText(this.reportInput());
+    // Copy mtr text's fallback box (no clipboard) holds the numbers of its click: kept while it is in use
+    // (rewriting it would drop the selection before Ctrl+C), hidden once it isn't, so it never shows older ones.
+    if (!this.hopsTa.hidden && document.activeElement !== this.hopsTa) { this.hopsTa.hidden = true; this.hopsSay.textContent = ''; }
     this.renderRun();
     this.renderReport();
   }
@@ -2071,11 +2127,11 @@ class Investigate {
   /** "Run it yourself": the same trace with mtr (or pathping on Windows). */
   renderRun() {
     const host = this.runHost();
-    const key = `${this.mode} ${host}`;
+    const key = `${this.mode} ${this.port} ${host}`;
     if (key === this.runFor) return;
     this.runFor = key;
     if (!host) { this.runEl.replaceChildren(); return; }
-    const cmd = mtrCommand(host, this.mode);
+    const cmd = mtrCommand(host, this.mode, this.port);
     const say = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     const ta = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '1', hidden: true, 'aria-label': 'Command' }));
     this.runEl.replaceChildren(

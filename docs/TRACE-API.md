@@ -11,7 +11,7 @@ A trace has a mode, which picks its probes. None needs admin rights.
 | `mode` | Probes | Like | Hop series kind |
 |---|---|---|---|
 | `icmp` (default) | ICMP echo requests | `mtr` | `trace` |
-| `tcp` | TCP SYNs to port 443, closed with a reset | `mtr -T -P 443` | `trace_tcp` |
+| `tcp` | TCP SYNs to port 443 (or `port=`), closed with a reset | `mtr -T -P 443` | `trace_tcp` |
 | `udp` | UDP datagrams to port 33434; the destination answers "port unreachable" | `mtr -u` | `trace_udp` |
 
 The destination port is fixed per trace, but the source port changes with every probe, so routers that balance per flow (ECMP) can still show several addresses at one hop, as with `mtr`. Each mode of a target is its own trace: its own session, slot, numbers and route. Always-on traces are ICMP. Hops are shared only between traces of the same mode, but the cap of 1 probe a second per router counts every mode. Route changes are recorded for ICMP traces only; the route of a TCP or UDP trace is kept in memory while fyisp runs, so after a restart its hop numbers have no addresses until it is traced again.
@@ -32,8 +32,8 @@ Linux reads the routers' replies to TCP and UDP probes from each probe socket's 
 ## Start
 
 ```
-POST api/investigate?target=<profile target name>[&mode=icmp|tcp|udp]
-POST api/investigate?host=<name or IPv4 address>[&mode=icmp|tcp|udp]
+POST api/investigate?target=<profile target name>[&mode=icmp|tcp|udp][&rounds=10-250][&port=1-65535]
+POST api/investigate?host=<name or IPv4 address>[&mode=icmp|tcp|udp][&rounds=10-250][&port=1-65535]
 ```
 
 There is no body. The checks are:
@@ -48,9 +48,9 @@ There is no body. The checks are:
 | Public addresses only | a `host` must resolve to public IPv4 addresses only (see [below](#hosts-outside-the-profile)) |
 
 **Request rules:**
-- Exactly one `target` or `host` parameter, at most one `mode` (default `icmp`), at most one `rounds` (10 to 250, default 250; anything else is 400 `bad_request`) and nothing else, with no body: a declared length or chunking is refused before reading, and anything sent anyway is read up to 1 KiB and refused.
+- Exactly one `target` or `host` parameter, at most one `mode` (default `icmp`), at most one `rounds` (10 to 250, default 250; anything else is 400 `bad_request`), at most one `port` (below) and nothing else, with no body: a declared length or chunking is refused before reading, and anything sent anyway is read up to 1 KiB and refused.
 - `target` is a profile target name, or the name of a host's trace (`host:example.com`), which is the same as `host=example.com`.
-- There is no port parameter: TCP traces always go to port 443, UDP traces to port 33434.
+- `port` (1 to 65535) is for `mode=tcp` only (anything else is 400 `bad_request`); without it TCP goes to port 443, and UDP always to port 33434. Another TCP port makes the trace one of the host to that port, named `host:<host>:<port>` (a profile target's own host for `target=`; port 443 keeps the name `host:<host>`, or the target's own). `target=host:example.com:22` names it the same way; a `port=` given with it wins. A profile target whose address fyisp discovers (the gateway, the ISP edge) has no host to trace to another port: 400 `bad_request`.
 - Every response past the host check has `Cache-Control: no-store`.
 - Logs name the target and the error, never the client.
 
@@ -96,7 +96,7 @@ Client addresses behind a tunnel can't be trusted, so the admin token, the slots
 2. **The slots**, before any lookup.
 3. **Public addresses only.** The name is resolved with the system resolver, IPv4 only, as targets are. Every address must be public: not private (RFC 1918), loopback, link-local, carrier-grade NAT (100.64/10), multicast, broadcast, "this network", reserved, benchmarking (198.18/15) or documentation space. One such address refuses the host. This keeps a token holder behind your tunnel from mapping your LAN; the Network path already shows your router.
 
-The trace is named `host:<host>` (`"target"` in the response): `GET api/trace?target=host:example.com&mode=` and `api/trace/panel` read it like a target's, with `host` set to it. Profile target names can't start with `host:`. The tracer re-resolves the name every minute, as it does for targets, and checks every answer again: if the name later resolves to an address that isn't public (DNS rebinding), the trace stops (`finished`) and nothing is sent there.
+The trace is named `host:<host>`, or `host:<host>:<port>` for TCP to a port other than 443 (`"target"` in the response; `port` in `GET api/trace` is that port): `GET api/trace?target=host:example.com&mode=` and `api/trace/panel` read it like a target's, with `host` set to it. Profile target names can't start with `host:`. The tracer re-resolves the name every minute, as it does for targets, and checks every answer again: if the name later resolves to an address that isn't public (DNS rebinding), the trace stops (`finished`) and nothing is sent there.
 
 A host's hop numbers are stored like a target's, under its name, and age out with the rest of the data; the name itself stays in the database's index of series. Its route is kept in memory, never stored: while the trace runs and for an hour after, so after that (or a restart) its hop numbers have no addresses. No route changes are recorded for it.
 

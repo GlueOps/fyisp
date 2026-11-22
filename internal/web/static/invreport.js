@@ -66,7 +66,7 @@ const r2 = (/** @type {number|null} */ f) => (f == null ? null : Math.round(f * 
 function isoTime(ms) { return new Date(ms).toISOString().replace(/\.\d+Z$/, '+0000'); }
 
 // The probes' destination port when the trace doesn't say (TCP, UDP).
-const PORT = { tcp: 443, udp: 33434 };
+export const PORT = { tcp: 443, udp: 33434 };
 
 /** The probe type, in words. @param {ReportInput} r */
 export function probeName(r) {
@@ -192,9 +192,9 @@ export function tracerouteText(r) {
   return lines.join('\n') + '\n';
 }
 
-/** The command to run the same trace yourself, with the same probes. @param {string} host @param {string} [mode] */
-export function mtrCommand(host, mode = 'icmp') {
-  const how = mode === 'tcp' ? `-T -P ${PORT.tcp} ` : mode === 'udp' ? `-u -P ${PORT.udp} ` : '';
+/** The command to run the same trace yourself, with the same probes. @param {string} host @param {string} [mode] @param {number} [port] TCP's */
+export function mtrCommand(host, mode = 'icmp', port = PORT.tcp) {
+  const how = mode === 'tcp' ? `-T -P ${port} ` : mode === 'udp' ? `-u -P ${PORT.udp} ` : '';
   return `mtr ${how}-rwzbc 100 ${host}`;
 }
 /** @param {string} host */

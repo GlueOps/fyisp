@@ -379,10 +379,12 @@ body.investigating #panels, body.investigating #verdict, body.investigating #out
 .inv { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 24px; }
 .inv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .inv-head h2 { margin: 0; font-size: 18px; }
-.inv-pick, .inv-rounds {
+.inv-pick, .inv-rounds, .inv-port {
   font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; max-width: min(320px, 100%);
 }
+.inv-port { width: 6.5em; }
+.inv-port[aria-invalid="true"] { border-color: var(--danger-border); }
 .inv-mode-note { margin: 6px 0 0; }
 .inv-host { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; }
 .inv-host input {
@@ -434,8 +436,9 @@ table.hops { width: 100%; border-collapse: collapse; font-size: 13px; font-varia
 /* mtr's look: one monospace line per hop, the host as mtr -z prints it. */
 .hops td.hn, .hops td.addr, .hops td.loss, .hops td.num { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
 .hops td.addr { white-space: pre; min-width: 0; }
-.hops td.note { white-space: nowrap; }
-.hops td.note > * { display: inline-block; margin: 0 6px 0 0; }
+.hops td.note { min-width: 9em; }
+.hops td.note > * { display: inline-block; margin: 0 6px 0 0; white-space: nowrap; }
+.hops td.note .own { white-space: normal; }
 .isp {
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
   padding: 0 6px; border-radius: 999px; color: var(--ink);

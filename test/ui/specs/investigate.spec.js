@@ -291,8 +291,8 @@ test('the probe picker: TCP 443 and UDP traces, with a matching report and mtr c
   await expect(page.locator('#inv .inv-status .pill.on', { hasText: 'Always-on trace' })).toBeVisible();
   expect(posts.modes).toEqual([]); // the always-on trace is ICMP
 
-  await modes.getByRole('button', { name: 'TCP 443' }).click();
-  await expect(modes.getByRole('button', { name: 'TCP 443' })).toHaveAttribute('aria-pressed', 'true');
+  await modes.getByRole('button', { name: 'TCP', exact: true }).click();
+  await expect(modes.getByRole('button', { name: 'TCP', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => posts.modes).toEqual(['tcp']); // the owner's view starts the TCP trace
   expect(asked).toContain('tcp');
   await expect(page.locator('#inv .inv-status .pill.on', { hasText: 'Tracing…' })).toBeVisible();
@@ -305,7 +305,7 @@ test('the probe picker: TCP 443 and UDP traces, with a matching report and mtr c
 
   // The mode is part of the link.
   await page.reload();
-  await expect(modes.getByRole('button', { name: 'TCP 443' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(modes.getByRole('button', { name: 'TCP', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
   await modes.getByRole('button', { name: 'UDP' }).click();
   await expect(page.locator('#inv .inv-run .inv-cmd')).toHaveText('mtr -u -P 33434 -rwzbc 100 8.8.8.8');
@@ -433,13 +433,23 @@ test('each hops row reads like its line in the mtr text, and Copy mtr text copie
     expect(l.trim().split(/\s+/).slice(-7)).toEqual(cells.slice(1));
   }
 
-  // Still running: the copy says how far it got. No clipboard: the box shows the text, and follows the table.
+  // No clipboard: the box shows the text; kept while in use, hidden on a refresh once it isn't.
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined }));
   await page.getByRole('button', { name: 'Copy mtr text' }).click();
   await expect(page.locator('#inv .panel-head [role=status]')).toHaveText(/^Selected: press Ctrl\+C/);
   const box = page.locator('#inv textarea[aria-label="mtr text"]');
   await expect(box).toBeVisible();
   await expect(box).toHaveValue(/^Start: .*\nHOST: fyisp/);
+  // While it is in use, the 5 s refresh leaves it (and its selection) alone.
+  const sel = await box.evaluate((/** @type {HTMLTextAreaElement} */ t) => [t.selectionStart, t.selectionEnd]);
+  await page.waitForTimeout(6000);
+  await expect(box).toBeVisible();
+  expect(await box.evaluate((/** @type {HTMLTextAreaElement} */ t) => [t.selectionStart, t.selectionEnd])).toEqual(sel);
+  await box.blur();
+  await page.waitForTimeout(6000);
+  await expect(box).toBeHidden();
+  await page.getByRole('button', { name: 'Copy mtr text' }).click();
+  await expect(box).toBeVisible();
   // Another target: the box goes, so it never shows the previous target's hops.
   await page.goto('/#' + new URLSearchParams({ t: 'CDN-Cloudflare', r: '1h' }));
   await expect(box).toBeHidden();
@@ -512,3 +522,17 @@ for (const width of [360, 390]) {
     expect(/** @type {any} */ (loss).y).toBeGreaterThan(/** @type {any} */ (addr).y);
   });
 }
+
+test('long network names wrap in the Note column instead of widening the table (1024 px)', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('fyisp-inv-more', '0'); } catch { /* none */ } });
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route('**/api/trace?*', async (route) => {
+    const res = await route.fetch();
+    const d = await res.json();
+    for (const x of d.hops) if (x.asn) x.owner = 'COMCAST-7922 - Comcast Cable Communications, LLC';
+    return route.fulfill({ response: res, json: d });
+  });
+  await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8', r: '1h' }));
+  await expect(hopRow(page, 12).locator('td.note')).toContainText('Comcast');
+  expect(await page.locator('#inv table.hops').evaluate((t) => /** @type {HTMLElement} */ (t.parentElement).scrollWidth <= /** @type {HTMLElement} */ (t.parentElement).clientWidth)).toBe(true);
+});

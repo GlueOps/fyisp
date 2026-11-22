@@ -4,6 +4,8 @@ package model
 
 import (
 	"net/netip"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -145,12 +147,40 @@ const HostTargetPrefix = "host:"
 // by the caller: lowercase, no trailing dot).
 func HostTarget(host string) string { return HostTargetPrefix + host }
 
-// HostOf returns the host of a HostTarget name.
-func HostOf(name string) (string, bool) {
-	if len(name) > len(HostTargetPrefix) && name[:len(HostTargetPrefix)] == HostTargetPrefix {
-		return name[len(HostTargetPrefix):], true
+// HostPortTarget is the target name of an on-demand TCP trace of host to
+// port: HostTarget(host) for TraceTCPPort (or 0), else "host:example.com:22",
+// so that every port is its own trace with its own hop series.
+func HostPortTarget(host string, port int) string {
+	if port == 0 || port == TraceTCPPort {
+		return HostTarget(host)
 	}
-	return "", false
+	return HostTarget(host) + ":" + strconv.Itoa(port)
+}
+
+// HostOf returns the host of a HostTarget or HostPortTarget name.
+func HostOf(name string) (string, bool) {
+	h, _, ok := HostPortOf(name)
+	return h, ok
+}
+
+// HostPortOf returns the host of a HostTarget or HostPortTarget name and its
+// TCP port (0: none in the name, the mode's own). Hosts never hold a colon
+// (IPv4 addresses and DNS names only), so one is the port's.
+func HostPortOf(name string) (host string, port int, ok bool) {
+	if len(name) <= len(HostTargetPrefix) || name[:len(HostTargetPrefix)] != HostTargetPrefix {
+		return "", 0, false
+	}
+	h := name[len(HostTargetPrefix):]
+	i := strings.LastIndexByte(h, ':')
+	if i < 0 {
+		return h, 0, true
+	}
+	// Only the canonical form: no 443 (that is the plain name), no leading zero or sign.
+	p, err := strconv.Atoi(h[i+1:])
+	if err != nil || i == 0 || p < 1 || p > 65535 || HostPortTarget(h[:i], p) != name {
+		return "", 0, false
+	}
+	return h[:i], p, true
 }
 
 // Reason explains a missing sample. It fits in 4 bits of the storage format.

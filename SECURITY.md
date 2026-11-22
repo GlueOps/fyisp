@@ -158,14 +158,19 @@ It can't reach your LAN. The safeguards are:
   naming the address. IPv6 is not traced. The tracer checks every later
   resolution too and stops the trace if the name starts resolving to such
   an address (DNS rebinding);
-- the ports are fixed: TCP traces go to port 443 only, UDP traces to
-  33434; there is no port parameter, so it can't scan ports;
+- one destination port per trace: TCP to 443 unless the admin token's
+  holder names another (`port=`, 1 to 65535; that port's trace is its own,
+  `host:<name>:<port>`, under the same limits), UDP to 33434 only; there
+  are no port ranges, so one trace can't scan ports (the token's holder
+  could still trace one port after another, at most 4 at a time), and the
+  destination's firewall may log the SYNs as short connection attempts;
 - each trace stops by itself after the rounds asked for, at most 250
   (about 10 minutes); re-posting doesn't extend it;
 - at most 4 run at once (429 `busy`), checked before a host is looked up;
 - the per-router probe cap is unchanged;
 - the route takes exactly one `target` or `host` parameter, an optional
-  `mode` (`icmp`, `tcp` or `udp`), an optional `rounds` (10 to 250) and no body (a declared length,
+  `mode` (`icmp`, `tcp` or `udp`), an optional `rounds` (10 to 250), for
+  TCP an optional `port` (1 to 65535) and no body (a declared length,
   chunking or anything read is refused), is never cached, and its
   responses carry only the trace's state (target name, mode, rounds,
   times);
@@ -184,7 +189,7 @@ The dashboard's controls:
 | GET the page (`/`) and `static/*` | yes | no | - | the same files for everyone |
 | GET `/api/*`, `/metrics` | yes | yes (401 without) | - | read-only |
 | POST `/api/speed/run`, `/api/speed/config`, `/api/speed/cancel` | yes | yes | yes | one queue, one test at a time |
-| POST `/api/investigate` (`target=` or `host=`, optional `mode=` and `rounds=`) | yes | yes | yes | the safeguards above: public hosts only, fixed ports, 4 at once, 250 rounds |
+| POST `/api/investigate` (`target=` or `host=`, optional `mode=`, `rounds=` and `port=`) | yes | yes | yes | the safeguards above: public hosts only, one port per trace, 4 at once, 250 rounds |
 | POST `/api/storage/target/*`, `/api/storage/check`, `/api/storage/run`, `/api/storage/campaign/*` | yes | yes | yes | `application/json` bodies only; the address rules above; one check (or set of key tries) at a time, 20 s each; rounds wait in the speed-test queue; keys tried first, never returned |
 | POST/DELETE `/api/admin/session` | yes | POST exchanges it for the cookie | `Sec-Fetch-Site` only (the token header and DELETE need a CORS preflight, never granted) | - |
 
@@ -226,8 +231,8 @@ In scope, for example:
   *What happened at …?*;
 - bypasses of the dashboard's protections (Host allowlist, the admin
   token, CSRF), or of the on-demand trace safeguards above (tracing
-  anything but a profile target or a public address, another port, more
-  than 4 at once, past 250 rounds);
+  anything but a profile target or a public address, more than one port
+  per trace, more than 4 at once, past 250 rounds);
 - ways for a remote party to make fyisp run commands, read or write files, or
   exhaust memory or disk;
 - supply-chain issues in the release process (launchers, checksums, images).
