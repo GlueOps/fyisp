@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/GlueOps/fyisp/compare/v0.18.1...v0.18.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **docs:** restore the server command's --listen=127.0.0.1 ([#164](https://github.com/GlueOps/fyisp/issues/164)) ([b34ffd3](https://github.com/GlueOps/fyisp/commit/b34ffd3827b364e09dee0adcf1485bd772cd0503))
+
 ## [0.18.1](https://github.com/GlueOps/fyisp/compare/v0.18.0...v0.18.1) (2026-11-22)
 
 
