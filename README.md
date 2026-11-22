@@ -496,10 +496,10 @@ To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md)
 <!-- x-release-please-start-version -->
 ```sh
 (umask 077; openssl rand -hex 16 > ~/.fyisp-token)
-IMAGE=ghcr.io/glueops/fyisp:v0.18.0
+IMAGE=ghcr.io/glueops/fyisp:v0.18.1
 FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey --site site-a
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=0.18.1.1:3000 --profile all --path-survey --site site-a
 ```
 <!-- x-release-please-end -->
 
