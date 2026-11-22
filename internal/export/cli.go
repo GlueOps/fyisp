@@ -31,7 +31,7 @@ func Flags(fs *flag.FlagSet) func(now time.Time) (Options, error) {
 	speed := fs.Bool("speedtests", false, "export the speed tests (CSV: id,start,end,trigger,outcome,server,...) instead of samples")
 	storage := fs.Bool("storage", false, "export the storage tests' attempts (CSV: campaign,round,target,target_name,phase,...) instead of samples")
 	addrs := fs.Bool("addrs", false, "export the address each host's probes used, per period (CSV: host,ip,answers,first_seen,last_seen) instead of samples")
-	survey := fs.Bool("survey", false, "export the path survey (--path-survey), per hour, target, TTL and router (CSV: hour,target,host,port,dest_ip,...) instead of samples")
+	survey := fs.Bool("survey", false, "export the path survey, per hour, target, TTL and router (CSV: hour,target,host,port,dest_ip,...) instead of samples")
 	out := fs.String("output", "", "output file, created with mode 0600 (default stdout)")
 	fs.StringVar(out, "o", "", "shorthand for --output")
 	return func(now time.Time) (Options, error) {

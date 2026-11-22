@@ -52,6 +52,18 @@ origin and the CSRF token. Every
 test waits in one queue and exactly one runs at a time: the owner's tests
 first, then scheduled ones.
 
+The path survey is on by default (`--path-survey=false` or
+`FYISP_PATH_SURVEY=0` turns it off). Every 15 minutes it traceroutes each
+TCP and HTTPS target of the profile with TCP SYNs to the target's own port
+(on Linux from one fixed source port per target), so the routers on the way
+and the target see probes from your public IP address. It uses the same
+per-router cap as the other traces ([docs/OPERATORS.md](docs/OPERATORS.md)
+has the details). It keeps locally, per hour, the routers past your
+provider with their addresses (routers of your network and your provider's
+without), and the address each target's name resolved to, never one on
+your network or in your provider's. Turning the survey off stops new rows;
+what it kept stays until `--retention` ages it out.
+
 Storage tests connect only to S3-compatible endpoints the owner saves as
 targets (any vendor, or a server on the LAN), over IPv4, with fyisp's own
 HTTP/1.1 client: no proxy, no redirects followed, no retries, no

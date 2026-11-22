@@ -66,6 +66,7 @@ func TestTunnelEnv(t *testing.T) {
 // TestPathSurveyEnv: the path survey is on unless --path-survey=false or
 // FYISP_PATH_SURVEY=0; the flag wins.
 func TestPathSurveyEnv(t *testing.T) {
+	t.Setenv("FYISP_PATH_SURVEY", "")
 	if c, err := parseFlags(nil); err != nil || !c.pathSurvey {
 		t.Errorf("default: path survey %v, %v", c.pathSurvey, err)
 	}
