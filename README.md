@@ -114,7 +114,7 @@ To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md)
 
 ```sh
 (umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
-IMAGE=ghcr.io/glueops/fyisp:v0.16.0 # x-release-please-version
+IMAGE=ghcr.io/glueops/fyisp:v0.17.0 # x-release-please-version
 FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
