@@ -306,8 +306,11 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 			case <-time.After(d):
 			}
 		}
+		if ctx.Err() != nil {
+			return hops.Hop{}, nil, false
+		}
 		keys, ok := tr.lim.takeSpare(k, tr.o.Now())
-		if !ok || ctx.Err() != nil {
+		if !ok {
 			return hops.Hop{}, nil, false
 		}
 		h, err := tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout)
@@ -332,6 +335,7 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		if expect != dst {
 			var ok bool
 			if keys, ok = tr.lim.takeSpare(k, now); !ok {
+				prevK = nil // only TTLs next to each other count as a silent run
 				if r, ok := sv.recent(expect, now); ok && own {
 					answered, rtts, probed = append(answered, expect), append(rtts, r), append(probed, true)
 					unknown, last = 0, ttl

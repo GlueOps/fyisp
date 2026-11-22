@@ -152,15 +152,18 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 		routers []string
 		nat     int
 		lose    int // a fixed-flow TTL whose answer is lost once
+		busyTTL int // a TTL whose bucket another trace has just used (the survey must skip it)
 		want    []string
 		fixed   int
 		reached int
 	}
 	for _, c := range []tc{
-		{"nat", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 2, 0, []string{"1:62.1.1.1", "2:62.2.2.2", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
-		{"silent router past nat", []string{"62.1.1.1", "", "62.3.3.3"}, 2, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
-		{"one lost answer", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 0, 2, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 1, 1},
-		{"silent routers", []string{"62.1.1.1", "", "", "62.4.4.4"}, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 1, 1},
+		{"nat", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 2, 0, 0, []string{"1:62.1.1.1", "2:62.2.2.2", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
+		{"silent router past nat", []string{"62.1.1.1", "", "62.3.3.3"}, 2, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
+		{"one lost answer", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 0, 2, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 1, 1},
+		{"silent routers", []string{"62.1.1.1", "", "", "62.4.4.4"}, 0, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 1, 1},
+		// TTL 3 is left out (its bucket isn't full): TTLs 2 and 4 are no silent run, and TTL 3 isn't probed
+		{"capped ttl between", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3", "62.4.4.4"}, 2, 0, 3, []string{"1:62.1.1.1", "2:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 0, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -169,6 +172,9 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 					wait: func() { time.Sleep(900 * time.Millisecond) }}
 				tr, _, _ := roundTracer(t, f.fakeNet, Options{RouterRate: DefaultRouterRate, Now: time.Now})
 				tr.prober = f
+				if c.busyTTL > 0 {
+					tr.lim.take(limitKey{ttl: c.busyTTL}, time.Now())
+				}
 				sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
 				h, _ := tr.surveyRound(context.Background(), sv, surveyTargetFor(model.Target{Name: "svc", Host: "198.51.100.1"}))
 				p := h.Paths[0]
@@ -178,6 +184,13 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 				}
 				if !slices.Equal(got, c.want) || p.Fixed != c.fixed || p.Reached != c.reached || p.Rounds != 1 {
 					t.Errorf("hops %v fixed %d reached %d, want %v fixed %d reached %d", got, p.Fixed, p.Reached, c.want, c.fixed, c.reached)
+				}
+				if c.busyTTL > 0 {
+					for _, r := range f.log {
+						if r.ttl == c.busyTTL {
+							t.Errorf("TTL %d probed despite the cap", c.busyTTL)
+						}
+					}
 				}
 			})
 		})
