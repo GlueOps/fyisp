@@ -42,14 +42,14 @@ Each service gets a TCP connect (handshake, then close; no data, no login) every
 
 **Everything else is opt-in.** `--profile` picks from the built-in **target catalog** (about 1,400 endpoints, one file per provider in [`internal/profile/catalog/`](../internal/profile/catalog/), every endpoint checked by hand). For containers, compose files and NAS templates, the environment variable `FYISP_PROFILE` does the same; `--profile` and `--config` win over it. Likewise `FYISP_LISTEN` and `FYISP_DATA_DIR` set the defaults of `--listen` and `--data-dir`, `FYISP_TUNNEL=1` turns on `--tunnel`, `FYISP_PATH_SURVEY=1` turns on `--path-survey`, and `FYISP_ADMIN_TOKEN` sets the admin token (see [Admin token](../README.md#admin-token)).
 
-```sh
-fyisp profiles                       # list the profiles, with target and panel counts
-fyisp profiles aws                   # the targets of a profile (region, city, country)
-fyisp --profile default,streaming    # the default plus streaming (combine profiles: a union)
-fyisp --profile clouds --geo eu      # only the targets of a profile in one region (na sa eu me af as oc)
-FYISP_PROFILE=default,calls fyisp    # the same as --profile default,calls
-docker run ... -e FYISP_PROFILE=default,streaming ghcr.io/glueops/fyisp
-```
+| Command | What it does |
+|---|---|
+| `fyisp profiles` | lists the profiles, with target and panel counts |
+| `fyisp profiles aws` | the targets of a profile (region, city, country) |
+| `fyisp --profile default,streaming` | the default plus streaming (combine profiles: a union) |
+| `fyisp --profile clouds --geo eu` | only the targets of a profile in one region (na sa eu me af as oc) |
+| `FYISP_PROFILE=default,calls fyisp` | the same as `--profile default,calls` |
+| `docker run ... -e FYISP_PROFILE=default,streaming ghcr.io/glueops/fyisp` | the same in Docker |
 
 | Profiles | What |
 |---|---|

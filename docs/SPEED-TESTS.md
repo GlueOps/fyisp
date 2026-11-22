@@ -2,14 +2,14 @@
 
 fyisp can measure your download and upload speed around the clock, so you can see whether your connection gets slower at certain times of day (the classic evening dip when everyone streams), and whose network the slowdown is in. **It is off by default.** Switch it on with `--speedtest`, or pick a mode in Details → Speed (the choice is saved). A `--speedtest` flag wins: Details then shows its mode but can't change it, and turning tests off there lasts only until the next restart. "Test now" (or *Test speed now* on Home) queues one test, and "Test every server" a sweep of every server, in any mode. Tests run one at a time from a single queue (scheduled ones included), and results you asked for are kept out of the time-of-day patterns.
 
-```sh
-fyisp --speedtest                                  # mode regions: 15 regions, each once an hour
-fyisp --speedtest=regions,add=canada,netherlands   # plus opt-in regions
-fyisp --speedtest=nearby                           # 3 nearby providers and 1 far region, every 15 minutes
-fyisp --speedtest=nearby,far=us-west               # plus another far region
-fyisp --speedtest-server 192.168.1.20:5201 --speedtest=every=5m   # your own iperf3 server on your network: down to every=1m
-fyisp --speedtest --speedtest-server Leaseweb-Tokyo,OVH-Sydney     # chosen catalog servers (mode custom)
-```
+| Command | What it does |
+|---|---|
+| `fyisp --speedtest` | mode regions: 15 regions, each once an hour |
+| `fyisp --speedtest=regions,add=canada,netherlands` | plus opt-in regions |
+| `fyisp --speedtest=nearby` | 3 nearby providers and 1 far region, every 15 minutes |
+| `fyisp --speedtest=nearby,far=us-west` | plus another far region |
+| `fyisp --speedtest-server 192.168.1.20:5201 --speedtest=every=5m` | your own iperf3 server on your network: down to `every=1m` |
+| `fyisp --speedtest --speedtest-server Leaseweb-Tokyo,OVH-Sydney` | chosen catalog servers (mode custom) |
 
 **Modes:**
 - **`regions`**, the default once switched on: 15 regions (UK, Western Europe, Central Europe; in the US: East, Central, West, Northwest, Bay Area, Southwest, Midwest, Mid-Atlantic and Southeast; East Asia, Southeast Asia and Oceania), each tested once an hour.
