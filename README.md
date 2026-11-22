@@ -69,14 +69,14 @@ docker run --rm ghcr.io/glueops/fyisp --help
 & ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --help
 ```
 
-Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell, and after the image name in Docker:
+Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell (quote a value with a comma, which PowerShell would otherwise split), and after the image name in Docker:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --profile default,streaming
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --profile 'default,streaming'
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --profile default,streaming
+& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --profile 'default,streaming'
 ```
 
 The ones people use most:
@@ -99,16 +99,17 @@ less run.sh
 sh run.sh
 ```
 
-Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/glueops/fyisp/releases/latest) into one folder, keeping their names, then verify and run it:
+Or download the binary yourself: get `fyisp-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`, `windows-arm64.exe`) and `SHA256SUMS` from the [latest release](https://github.com/glueops/fyisp/releases/latest) into one folder, keeping their names, then verify and run it. On Linux (on macOS, the first line is `shasum -a 256 -c SHA256SUMS --ignore-missing`; use your file's name, and `gh attestation verify` is optional):
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing     # macOS: shasum -a 256 -c SHA256SUMS --ignore-missing
-gh attestation verify fyisp-linux-amd64 --repo glueops/fyisp   # optional
-chmod +x fyisp-linux-amd64 && ./fyisp-linux-amd64   # use your file's name
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify fyisp-linux-amd64 --repo glueops/fyisp
+chmod +x fyisp-linux-amd64 && ./fyisp-linux-amd64
 ```
 
+On Windows, this runs it only if the checksum matches:
+
 ```powershell
-# Windows: runs it only if the checksum matches
 $want = (Select-String -Path .\SHA256SUMS -Pattern 'fyisp-windows-amd64\.exe$').Line.Split(' ')[0]
 if ((Get-FileHash .\fyisp-windows-amd64.exe).Hash -eq $want) { .\fyisp-windows-amd64.exe } else { 'checksum mismatch: do not run it' }
 ```
@@ -237,8 +238,10 @@ fyisp now starts, hidden, whenever you log in, with the admin token the last lin
 
 ### Linux (systemd)
 
+On an ARM machine, use `fyisp-linux-arm64` (or `fyisp-linux-armv7` on a 32-bit Raspberry Pi OS) in the first and fourth lines:
+
 ```sh
-curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64
 curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -m 0755 fyisp-linux-amd64 /usr/local/bin/fyisp
@@ -251,10 +254,10 @@ fyisp now runs whenever the machine is on, from boot. [`packaging/fyisp.service`
 
 ### Docker, NAS and Raspberry Pi
 
-On Linux, run the container on the host's network, so that fyisp sees your real home router, and with your own admin token, so that a restart doesn't sign you out:
+On Linux, run the container on the host's network, so that fyisp sees your real home router, and with your own admin token (the first line makes it, readable by you only), so that a restart doesn't sign you out:
 
 ```sh
-(umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
+(umask 077; openssl rand -hex 16 > fyisp-token)
 FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
 echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
@@ -266,6 +269,23 @@ Open the link the last command prints.
 - **This machine only:** add `--listen=127.0.0.1:3000` after the image name.
 - **By name:** to open it as `http://nas.local:3000` or a Tailscale MagicDNS name, add `--allow-host nas.local` after the image name. Otherwise fyisp answers *421 unknown host* (a guard against DNS rebinding).
 - **Doesn't load:** `docker logs fyisp` says why.
+- **Raspberry Pi:** a Pi 2 or newer (the image is published for `linux/arm/v7` and `linux/arm64`); the Pi 1 and the first Pi Zero (armv6) aren't supported.
+- **Synology and other NAS:** if `docker` needs `sudo` there, put `sudo` first and the token after it, so `sudo` doesn't drop it: `sudo FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run …`, and `sudo` before the other `docker` commands. A NAS screen (Synology Container Manager, QNAP Container Station, Portainer, Unraid) can take a Compose project instead; put your own token in it (32 or more characters, e.g. from `openssl rand -hex 16`), or leave out the whole `environment:` block (both lines) and read the sign-in link from the container's log at each start:
+
+  ```yaml
+  services:
+    fyisp:
+      image: ghcr.io/glueops/fyisp
+      container_name: fyisp
+      restart: unless-stopped
+      network_mode: host
+      environment:
+        FYISP_ADMIN_TOKEN: "replace-with-your-own-token"
+      volumes: [fyisp:/data]
+  volumes:
+    fyisp:
+      name: fyisp
+  ```
 
 **Stop:** `docker stop fyisp`. **Update:** see [Upgrading](#upgrading). **Remove:** `docker rm -f fyisp && docker volume rm fyisp`.
 
@@ -338,15 +358,18 @@ To show someone what happened, send a screenshot of Home; for raw data, `fyisp e
 
 ```sh
 fyisp --tunnel
-#   Dashboard over HTTPS:  https://calm-river-words-1234.trycloudflare.com/
+```
+
+```text
+  Dashboard over HTTPS:  https://calm-river-words-1234.trycloudflare.com/
 ```
 
 Under Docker, add `--tunnel` after the image name and read the link from the log: `docker logs fyisp 2>&1 | grep trycloudflare`. The name is random and lives as long as fyisp keeps the tunnel: if the tunnel stays down for 5 minutes, fyisp opens a new one and prints its new link, and the link stops working when fyisp stops. fyisp uses QUIC and switches to HTTP/2 by itself when a network blocks UDP. With a generated admin token, fyisp also prints the private sign-in link for that address (to the terminal; under Docker, systemd or launchd that is the log); with your own, open `https://<name>.trycloudflare.com/#admin=<token>` or paste the token into the sign-in box. Quick tunnels are Cloudflare's free service for testing and demos, without an uptime guarantee.
 
-For a name of your own, run a tunnel or a reverse proxy yourself, for example a [cloudflared named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel run`) or `tailscale serve 3000`, and add its host name with `--allow-host`:
+For a name of your own, run a tunnel or a reverse proxy yourself, for example a [cloudflared named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel run`) or `tailscale serve 3000`, and add its host name, the name the tunnel or proxy uses, with `--allow-host`:
 
 ```sh
-fyisp --allow-host fyisp.example.com     # the name the tunnel or proxy uses
+fyisp --allow-host fyisp.example.com
 ```
 
 - The address shows the sign-in box until a browser has the [admin token](#admin-token).
@@ -393,19 +416,19 @@ FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --n
 
 Keep the options you started it with (this server's `--site`, a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
 
-**Linux (systemd).** Download and check the new binary, replace the old one and restart:
+**Linux (systemd).** Download and check the new binary (on ARM, `fyisp-linux-arm64` or `-armv7` in both places), replace the old one and restart:
 
 ```sh
-curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64
 curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing && sudo install -m 0755 fyisp-linux-amd64 /usr/local/bin/fyisp && sudo systemctl restart fyisp
 ```
 
-**macOS (LaunchAgent).** The same download as in [Keep it running](#macos-launchagent), without writing a new plist (which would make a new token), then a restart:
+**macOS (LaunchAgent).** The same download as in [Keep it running](#macos-launchagent) (on an Intel Mac, `fyisp-darwin-amd64` in both places), without writing a new plist (which would make a new token), then a restart:
 
 ```sh
 cd ~/.local/bin
-curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-darwin-arm64   # or -amd64 on an Intel Mac
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-darwin-arm64
 curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing && mv fyisp-darwin-arm64 fyisp && chmod +x fyisp && \
 launchctl kickstart -k gui/$(id -u)/io.github.glueops.fyisp
@@ -468,15 +491,17 @@ To uninstall, stop fyisp, then delete its data directory and the binary. The lau
 
 ## On a server (datacenter or office)
 
-To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker, with everything on that a server needs: every target of the catalog (`--profile all`, about 1,400) and the path survey (`--path-survey`: a TCP traceroute to every target every 15 minutes, kept hour by hour with the address each target resolved to, to tell GeoDNS, anycast, routing and congestion apart). Give each server its own `--site` name (here `site-a`), which every comparison row carries:
+To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker, with everything on that a server needs: every target of the catalog (`--profile all`, about 1,400) and the path survey (`--path-survey`: a TCP traceroute to every target every 15 minutes, kept hour by hour with the address each target resolved to, to tell GeoDNS, anycast, routing and congestion apart). Give each server its own `--site` name (here `site-a`), which every comparison row carries. The first line makes your admin token, readable by you only:
 
+<!-- x-release-please-start-version -->
 ```sh
-(umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
-IMAGE=ghcr.io/glueops/fyisp:v0.18.0 # x-release-please-version
+(umask 077; openssl rand -hex 16 > ~/.fyisp-token)
+IMAGE=ghcr.io/glueops/fyisp:v0.18.0
 FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey --site site-a
 ```
+<!-- x-release-please-end -->
 
 - **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
 - **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
@@ -507,11 +532,11 @@ The unit already listens on `127.0.0.1:3000` only. The token is `sudo sed -n 's/
 
 Everything builds in Docker; no Go toolchain is needed on your machine.
 
-```sh
-docker build --target test .                                         # gofmt check, go vet, go test -race
-docker buildx build --target dist --output type=local,dest=dist .    # the 7 release binaries + SHA256SUMS
-docker build -t fyisp .                                              # the runtime image
-```
+| What | Command |
+|---|---|
+| gofmt check, go vet, `go test -race` | `docker build --target test .` |
+| the 7 release binaries and SHA256SUMS | `docker buildx build --target dist --output type=local,dest=dist .` |
+| the runtime image | `docker build -t fyisp .` |
 
 [AGENTS.md](AGENTS.md) lists every other target (UI tests, launcher and image tests, regenerating goldens and fixtures) and how the code is laid out.
 
