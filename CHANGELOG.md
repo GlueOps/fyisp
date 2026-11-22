@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/GlueOps/fyisp/compare/v0.18.0...v0.18.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **docs:** make every pasted command work in zsh and PowerShell ([#160](https://github.com/GlueOps/fyisp/issues/160)) ([90f9418](https://github.com/GlueOps/fyisp/commit/90f941812e5adf90cfed33190b3634c1b5a43812))
+
 ## [0.18.0](https://github.com/GlueOps/fyisp/compare/v0.17.0...v0.18.0) (2026-11-22)
 
 
