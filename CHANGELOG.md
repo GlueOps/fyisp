@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/GlueOps/fyisp/compare/v0.17.0...v0.18.0) (2026-11-22)
+
+
+### Features
+
+* compare sites over the API with --site and api/compare.csv ([#158](https://github.com/GlueOps/fyisp/issues/158)) ([c56ad72](https://github.com/GlueOps/fyisp/commit/c56ad72d1dd155355614c631b73936dc34705d07))
+
 ## [0.17.0](https://github.com/GlueOps/fyisp/compare/v0.16.0...v0.17.0) (2026-11-22)
 
 
