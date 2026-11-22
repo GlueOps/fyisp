@@ -557,7 +557,7 @@ Add `--build-arg VERSION=v0.1.0` to stamp a version. Releases are built by [`.gi
 - [What to measure](docs/PROFILES.md): Home's tiles, the profiles, the Overview and the `--config` format
 - [How fyisp decides](docs/VERDICTS.md): Good, Slow, Choppy and Down, the verdicts, and Wi-Fi or router
 - [Call quality](docs/CALL-QUALITY.md), [Speed tests](docs/SPEED-TESTS.md) and [Storage tests](docs/STORAGE-TESTS.md)
-- [Comparing sites](docs/COMPARING-SITES.md): the path survey, and telling GeoDNS, anycast, routing and congestion apart
+- [Comparing sites](docs/COMPARING-SITES.md): the path survey, telling GeoDNS, anycast, routing and congestion apart, and the compare-sites agent skill that does it for two sites
 - [API](docs/API.md): every route, the `/metrics` series and the `fyisp export` columns
 - [STUN servers' terms](docs/STUN-TERMS.md), [iperf3 servers' terms](docs/IPERF3-TERMS.md) and [a note for iperf3 operators](docs/OPERATORS.md)
 - [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md)

@@ -1,3 +1,6 @@
 dist/
 *.db
 *.db-*
+
+# compare-sites reports hold router addresses
+fyisp-reports/

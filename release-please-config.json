@@ -7,7 +7,7 @@
       "bump-minor-pre-major": true,
       "draft": true,
       "force-tag-creation": true,
-      "extra-files": ["README.md"]
+      "extra-files": ["README.md", ".claude/skills/compare-sites/scripts/run.sh"]
     }
   }
 }

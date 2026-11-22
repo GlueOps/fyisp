@@ -23,6 +23,7 @@ fyisp is one static Go binary (`./cmd/fyisp`). It probes services with TCP conne
 | `internal/tunnel` | `--tunnel`: a Cloudflare quick tunnel run in-process (cloudflared linked in). Imports nothing from fyisp |
 | `test/netns`, `test/ui` | Network-fault harness (Linux, sudo), Playwright specs and fixtures |
 | `scripts/`, `packaging/`, `docs/` | Launchers, the systemd unit, user, API and operator docs |
+| `.claude/skills/compare-sites` | Agent skill comparing two sites over the HTTP API: `SKILL.md`, `scripts/run.sh` (the only command it runs; fixes the Docker flags and image), `scripts/compare_sites.py` (stdlib Python, runs in that container) |
 
 ## Build and test: Docker only
 
@@ -35,6 +36,7 @@ Don't install Go or Node on the host. Everything runs through the [Dockerfile](D
 | Launcher tests | `docker build --target launchertest .` and `docker build --target launchertest-pwsh .` |
 | systemd unit: `systemd-analyze verify`, and fails if `ProcSubset=` is set | `docker build --target servicetest .` |
 | Runtime image smoke test | `docker build --target imagetest .` |
+| compare-sites skill: its tests, and that `run.sh` pins `PYTHON_IMAGE` and the current release | `docker build --target skilltest .` |
 | Storage engine against RustFS and Garage (`s3lab-full`: and MinIO, built from source) | `docker build --target s3lab .` |
 | Release binaries and SHA256SUMS | `docker buildx build --target dist --output type=local,dest=dist .` |
 | Runtime image | `docker build -t fyisp .` |
@@ -77,6 +79,7 @@ docker run --rm -p 3000:3000 fyisp-webdev /fyisp-webdev -listen 0.0.0.0:3000 -ho
 - **Catalog:** the format is in [SCHEMA.md](internal/profile/catalog/SCHEMA.md). `docker build --target test .` runs all the catalog checks. Changing `default.yml` or a `tile:` tag changes the Home goldens.
 - **iperf3 servers:** add the server to its provider file and to a region in `regions.yml`. Add a new metro to `metroZones` (`internal/speedtest/catalog.go`), and update the count in `TestBuiltinCatalog` and the table in `docs/IPERF3-TERMS.md`. List every new id in `internal/speedtest/testdata/shipped-servers.txt`. To remove a server, delete it and move its id to `removed:` in `regions.yml`: fyisp then drops its stored results at start, keeping only the test windows.
 - **cloudflared:** `go.mod` pins it at a commit and repeats its `replace` directives (Go ignores them in dependencies). To bump it, change the version, copy its `replace` lines, and set `CloudflaredVersion` and `cloudflaredCommit` in `internal/tunnel/tunnel.go` (and the release in the `go.mod` comment); `TestCloudflaredVersionMatchesGoMod` checks both against the linked module and `TestReplaceDirectivesMatchCloudflared` the `replace` lines. Renovate is told to leave those three modules alone (`renovate.json`). A new cloudflared can raise the Go version (`GO_IMAGE` in the Dockerfile and `go-version` in ci.yml). Its live tests are the `livetest` stage and the manual "live tunnel" workflow.
+- **compare-sites skill:** a change to `CompareHeader` or `export.SurveyHeader` also updates `.claude/skills/compare-sites/scripts/testdata/headers.txt` (`TestCompareSitesSkillHeaders`) and whatever the script reads. `run.sh`'s `IMAGE` equals the Dockerfile's `PYTHON_IMAGE`, and its `VERSION` the release (release-please bumps it via `extra-files`). Its tests start a fake fyisp and check that no output, message or tar carries the token.
 - **Web UI:** plain ES modules, no build step, and a strict CSP. That means no inline scripts, styles or handlers, and no `innerHTML`. Build the DOM with `h()` from `core.js` and reuse its helpers (`fmtMs`, `fetchJSON`, `apiWrite`, ...). An API change also updates `docs/API.md` and `docs/*-API.md`.
 
 ## Conventions
@@ -123,4 +126,5 @@ Settled choices; reviewers shouldn't re-raise them.
 - **The path survey is off by default** (the owner's choice, 2026-11-22: home users measure the basics; the README's server command adds `--path-survey`, with `--profile all`). `--path-survey` or `FYISP_PATH_SURVEY=1` turns it on.
 - **`--addrs` is kept only with `--path-survey`**, never a LAN address or one in the provider's network; the survey blanks a destination it classifies as yours or your provider's.
 - **`--addrs` is keyed by host, not target**: the runner resolves hosts, and `fyisp export` has no profile; the survey rows carry both.
+- **compare-sites skill** (2026-11-22): HTTP only (no SSH), with the admin token from sign-in links in `~/.config/fyisp/sites`; the script always runs in Docker, through `run.sh`, which is the only command the skill pre-approves, and never with bind mounts (files go in and out as tar streams, because Docker-outside-of-Docker mounts the host's paths). It ships from a clone first; a plugin marketplace (`.claude-plugin/`) comes later, so add no plugin component folders or a `SKILL.md` at the repository root. Two sites, windows of up to 24 hours.
 - **No upgrade notes for installs before v0.15.0** (old image name, old macOS launchd label): everyone moves to v0.15.0 or newer.

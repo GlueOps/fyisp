@@ -2,6 +2,29 @@
 
 fyisp at two sites (two datacenters, two offices, two providers) tells you where each one is slower; with `--path-survey` it also keeps what you need to tell **why**. Back to the [README](../README.md).
 
+## With an AI agent
+
+The repository ships an agent skill, [`.claude/skills/compare-sites`](../.claude/skills/compare-sites/SKILL.md), that does the whole comparison: it fetches `api/status`, `api/compare.csv` and `api/survey.csv` from two sites, finds which site is slower to which targets and why (the causes [below](#telling-the-causes-apart)), and writes `report.md` (internal: it lists routers and their addresses) and `share-summary.md` (networks by number and owner only, to forward). Its script runs in a locked-down Docker container (no capabilities, read-only, as `nobody`), so the machine that runs it needs Docker and nothing else, and it reaches the sites only over their HTTP API with the admin token.
+
+1. **Prepare the sites.** Each runs the same release with the README's [server command](../README.md#on-a-server-datacenter-or-office) (`--path-survey`, its own `--site`), for a day or more if you want time-of-day patterns. To open two sites from one machine, each needs its own local address or port (see the server section's note on *421 unknown host*).
+2. **Save the sign-in links** in `~/.config/fyisp/sites`, one `name=<link>` per line, readable by you only. To keep the tokens out of the agent's session, write the file yourself, e.g. for a server reached over an SSH forward to port 3001:
+
+   ```sh
+   mkdir -p -m 700 ~/.config/fyisp
+   (umask 077; printf 'site-b=http://127.0.0.1:3001/#admin=%s\n' "$(ssh site-b cat .fyisp-token)" >> ~/.config/fyisp/sites)
+   ```
+
+   A link may use plain `http://` only to this machine (an SSH forward), or, followed by ` http-ok`, to an address on a network you trust (a VPN, Tailscale); otherwise use the `--tunnel` link (`https://…`). You can also paste a link into the session: the skill saves it, and then it is in the session's transcript and logs (restarting fyisp with a new token signs everyone out).
+3. **Run it** from your own directory. The reports go to `./fyisp-reports/`, which must not be committed: run.sh refuses a git repository that doesn't ignore it (this repository does). In Claude Code, open a clone of this repository, or copy the skill folder into your own project's `.claude/skills/` (or `~/.claude/skills/`), and type `/compare-sites site-a site-b 24h`, or a UTC window of up to 24 whole hours, `2026-11-22T00:00Z..2026-11-22T12:00Z` (twelve hours: the hour at the end is not included). A site not saved yet can come along as `site-b=<link>` after the window; the skill saves it, and the token is then in the session's transcript and logs. The skill starts only when you ask for it, and asks for nothing midway: if a link is missing it stops and says so.
+
+The script can also run without an agent: `.claude/skills/compare-sites/scripts/run.sh compare site-a site-b 24h`, then `run.sh fill <folder>` with the narrative sections on stdin, or read the tables as they are.
+
+**Where it runs.** Its container uses the Docker host's network: on Docker Desktop (macOS, Windows), turn on host networking (Settings → Resources → Network, Docker Desktop 4.34 or newer) to reach an SSH forward on your machine; in a devcontainer that talks to the host's Docker, open SSH forwards on the Docker host, or use the sites' `--tunnel` links. Each run fetches for at most 9 minutes; if that isn't enough, it says so and `run.sh resume <folder>` fetches the rest.
+
+**When it stops**, each message names the site, what happened and what to do. Two need a word more: *the admin token was refused* usually means fyisp restarted without `FYISP_ADMIN_TOKEN` and made a new token, and *the share link's tunnel is down or expired* means the `--tunnel` name changed (fyisp prints the new one in its log).
+
+**The report** starts with *Data quality*: different releases or profiles, a survey still on its first pass or off, a site clock more than a minute off the machine that ran the comparison, targets with too few hours, and paths the survey is less sure of (changing flows). Its causes compare the two paths where they cross the same networks, so a long stretch both share (an ocean crossing) doesn't count; *latency added in a network* names the network and the router after which the slower site's time grows. Its suggested routing changes say what kind of change each is: *peer* (the faster site reaches the destination's network directly), *prefer* (the slower site already has that upstream for other targets) or *new transit*.
+
 ## What to run
 
 At every site, the same fyisp release with the same profile, and `--path-survey` on. The README's [server command](../README.md#on-a-server-datacenter-or-office) does that with Docker, `--profile all` and `--path-survey`, on a pinned release.

@@ -81,3 +81,5 @@ The public iperf3 servers fyisp uses for speed tests live in [`internal/profile/
 ## Code changes
 
 Open an issue first for anything larger than a fix, so we can agree on the approach. Keep pull requests focused, run the test target, and add a test for the behaviour you change. [AGENTS.md](AGENTS.md) has the commands and conventions. Security issues go through [SECURITY.md](SECURITY.md), not public issues.
+
+**Reviewing a pull request with Claude Code:** the compare-sites skill pre-approves whatever `.claude/skills/compare-sites/scripts/run.sh` the checkout holds, and runs it with your sites file. Read a pull request's `.claude/` changes before typing `/compare-sites` on its branch.
