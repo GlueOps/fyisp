@@ -88,7 +88,7 @@ func main() {
 	out := flag.String("out", "", "data directory to write fyisp.db into")
 	flag.Parse()
 	ctx := context.Background()
-	s, err := store.Open(*out, store.Options{Version: "v0.17.0", Interval: interval, Now: func() time.Time { return end }})
+	s, err := store.Open(*out, store.Options{Version: "v0.18.0", Interval: interval, Now: func() time.Time { return end }})
 	if err != nil {
 		log.Fatal(err)
 	}
