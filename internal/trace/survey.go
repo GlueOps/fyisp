@@ -293,7 +293,8 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		complete = true
 		reached  = false
 		unknown  = 0
-		last     = 0 // highest TTL that answered
+		last     = 0     // highest TTL that answered
+		retried  = false // a silent fixed-flow TTL was asked again from a fresh port
 	)
 	for ttl := 1; ttl <= surveyMaxHops && ctx.Err() == nil; ttl++ {
 		var expect netip.Addr
@@ -332,6 +333,19 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 			}
 		} else {
 			h, err = tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout)
+		}
+		// Some NATs and firewalls drop a flow's repeated SYNs (or the answers
+		// to them) until their state for it expires, so past them a fixed flow
+		// goes silent. Its first silent TTL is asked once more from a fresh
+		// port; when that answers, this round goes on from fresh ports.
+		if err == nil && fixed && !retried && tp != nil && !h.Addr.IsValid() && !h.Reached && !h.Unreach {
+			retried = true
+			if more, ok := tr.lim.takeSpare(k, tr.o.Now()); ok {
+				keys = append(keys, more...)
+				if h2, err2 := tp.ProbeTransport(ctx, hops.TCP, to, ttl, tr.o.Timeout); err2 == nil && (h2.Addr.IsValid() || h2.Reached || h2.Unreach) {
+					h, fixed = h2, false
+				}
+			}
 		}
 		if err != nil {
 			tr.o.Log.Debug("path survey: probe failed", "target", t.st.t.Name, "ttl", ttl, "err", err)

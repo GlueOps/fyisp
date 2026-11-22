@@ -36,6 +36,7 @@ type flowNet struct {
 	mu    sync.Mutex
 	ports []uint16
 	busy  map[uint16]bool // ports that fail to bind
+	nat   int             // from this TTL on, a fixed flow's probes go unanswered (0: never)
 }
 
 func (f *flowNet) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint16, ttl int, timeout time.Duration) (hops.Hop, error) {
@@ -46,6 +47,9 @@ func (f *flowNet) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint1
 	}
 	f.ports = append(f.ports, sport)
 	f.mu.Unlock()
+	if f.nat > 0 && ttl >= f.nat {
+		return hops.Hop{}, nil
+	}
 	return f.fakeNet.ProbeTransport(ctx, hops.TCP, dst, ttl, timeout)
 }
 
@@ -121,6 +125,50 @@ func TestSurveyFixedFlow(t *testing.T) {
 	}
 	if p := h.Paths[0]; p.Rounds != 3 || p.Fixed != 2 || p.Reached != 3 {
 		t.Errorf("path %+v, want 3 rounds, 2 fixed", p)
+	}
+}
+
+// TestSurveyFlowBehindNAT: past a NAT that drops a flow's repeated SYNs,
+// the first silent TTL is asked again from a fresh port and the round goes
+// on from fresh ports (not counted as fixed); a router that answers
+// neither keeps the flow, and is asked again once a round at most.
+func TestSurveyFlowBehindNAT(t *testing.T) {
+	f := &flowNet{fakeNet: newFakeNet("62.1.1.1", "62.2.2.2", "62.3.3.3"), busy: map[uint16]bool{}, nat: 2}
+	tr, _, _ := roundTracer(t, f.fakeNet, Options{})
+	tr.prober = f
+	sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
+	tt := surveyTargetFor(model.Target{Name: "svc", Host: "198.51.100.1"})
+	h, _ := tr.surveyRound(context.Background(), sv, tt)
+	p := h.Paths[0]
+	if p.Rounds != 1 || p.Fixed != 0 || p.Reached != 1 {
+		t.Errorf("path %+v, want 1 round reached, not fixed", p)
+	}
+	var got []string
+	for _, hp := range p.Hops {
+		got = append(got, fmt.Sprintf("%d:%s", hp.TTL, hp.IP))
+	}
+	if want := []string{"1:62.1.1.1", "2:62.2.2.2", "3:62.3.3.3", "4:198.51.100.1"}; !slices.Equal(got, want) {
+		t.Errorf("hops %v, want %v", got, want)
+	}
+	if len(f.ports) != 2 {
+		t.Errorf("fixed-port probes %v, want 2 (TTL 1 and the silent TTL 2)", f.ports)
+	}
+
+	g := &flowNet{fakeNet: newFakeNet("62.1.1.1", "", "", "62.2.2.2"), busy: map[uint16]bool{}}
+	tr2, _, _ := roundTracer(t, g.fakeNet, Options{})
+	tr2.prober = g
+	h2, _ := tr2.surveyRound(context.Background(), sv, surveyTargetFor(model.Target{Name: "svc2", Host: "198.51.100.1"}))
+	if p := h2.Paths[0]; p.Fixed != 1 || p.Reached != 1 {
+		t.Errorf("silent router: path %+v, want the round still fixed", p)
+	}
+	n := 0
+	for _, r := range g.log {
+		if r.ttl == 2 || r.ttl == 3 {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Errorf("silent TTLs probed %d times, want 3 (TTL 2 twice, TTL 3 once)", n)
 	}
 }
 
