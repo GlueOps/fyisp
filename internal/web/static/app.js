@@ -22,7 +22,7 @@ import {
 import { Home, firstHome } from './home.js';
 import { PatternFilter, cleanPattern, MAX_PATTERN } from './filter.js';
 import { Speed } from './speed.js';
-import { mtrText, mtrJSON, mtrCSV, mtrCommand, pathpingCommand } from './invreport.js';
+import { mtrText, mtrJSON, mtrCSV, pingText, mtrCommand, pathpingCommand } from './invreport.js';
 
 const uPlot = /** @type {any} */ (window).uPlot;
 
@@ -1309,6 +1309,9 @@ const INV_REFRESH_MS = 5000;
 const REAL_LOSS = 0.01; // loss below 1% is noise (colours only: the server labels a hop's loss)
 const INV_SYNC = 'fyisp-inv';
 const INV_MORE = 'fyisp-inv-more'; // localStorage: the hops table shows P95, Javg and Jmax
+const INV_ROUNDS = 'fyisp-inv-rounds'; // localStorage: rounds of the next on-demand trace
+// Rounds an on-demand trace may run (POST api/investigate rounds=, 10 to 250), like mtr -c.
+const ROUNDS = [10, 100, 250];
 // The hops table, mtr's columns: [header, class, title]. MORE_COLS behind "More columns".
 const HOP_COLS = [['#', 'hn', 'Hop: TTL, 1 = your router'], ['Host', 'addr', 'Router address and its reverse DNS name'], ['ASN', 'own', 'The network (autonomous system) the address belongs to'],
   ['Loss%', 'loss', 'Share of probes this hop did not answer'], ['Snt', 'num', 'Probes sent'], ['Last', 'num', 'Newest round-trip time (ms)'], ['Avg', 'num', 'Average round-trip time (ms)'],
@@ -1425,6 +1428,9 @@ function invError(e) {
   return e.status === 429 ? `Too many traces right now. Try again ${invWait(e)}.` : 'Couldn’t start the trace. Try again.';
 }
 
+/** About how long n rounds of an on-demand trace take (2.5 s each). @param {number} n */
+const roundsTime = (/** @type {number} */ n) => `about ${fmtDur(n * 2500)}`;
+
 /** Headers of POST api/investigate: the CSRF token. */
 function invHeaders() { return { 'X-FYISP-Token': TOKEN }; }
 
@@ -1483,6 +1489,14 @@ class Investigate {
     this.mode = 'icmp';
     this.modeSeg = h('div', { class: 'seg sm inv-modes', role: 'group', 'aria-label': 'Probe type' });
     this.modeNoteEl = h('p', { class: 'muted small inv-mode-note' });
+    const saved = Number(storageGet(INV_ROUNDS));
+    this.rounds = ROUNDS.includes(saved) ? saved : 100;
+    // Always usable: it applies to the next trace started here, whether of this target or a typed host.
+    this.roundsSel = /** @type {HTMLSelectElement} */ (h('select', { class: 'inv-rounds', 'aria-label': 'Rounds per trace',
+      title: 'How many rounds the next trace runs, like mtr -c: one round about every 2.5 s. A running trace keeps its own.' },
+      ...ROUNDS.map((n) => h('option', { value: String(n), text: `${n} rounds (${roundsTime(n)})` }))));
+    this.roundsSel.value = String(this.rounds);
+    this.roundsSel.addEventListener('change', () => { this.rounds = Number(this.roundsSel.value); storageSet(INV_ROUNDS, this.roundsSel.value); this.renderStatus(); this.renderSummaryIfEmpty(); });
     // Any public host, traced with the picked probe type (POST api/investigate?host=).
     this.hostIn = /** @type {HTMLInputElement} */ (h('input', {
       type: 'text', name: 'host', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', maxlength: '253',
@@ -1509,7 +1523,7 @@ class Investigate {
     this.repFmt = 'text';
     this.repSay = h('span', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     this.repText = /** @type {HTMLTextAreaElement} */ (h('textarea', { class: 'inv-rep-text', readonly: true, rows: '12', spellcheck: 'false', 'aria-label': 'Report' }));
-    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)']];
+    const fmts = [['text', 'Text (mtr -rwz)'], ['json', 'JSON (mtr -j)'], ['csv', 'CSV (mtr -C)'], ['ping', 'Ping summary']];
     this.repFmts = h('div', { class: 'seg', role: 'group', 'aria-label': 'Report format' }, ...fmts.map(([k, t]) => h('button', {
       type: 'button', text: t, 'data-fmt': k, 'aria-pressed': String(k === this.repFmt),
       onclick: () => { this.repFmt = k; this.repSay.textContent = ''; this.renderReport(); },
@@ -1534,7 +1548,7 @@ class Investigate {
       this.invSay,
       h('div', { class: 'inv-head' },
         h('button', { class: 'btn', type: 'button', text: '← Dashboard', onclick: closeInvestigate }),
-        this.titleEl, this.picker, this.modeSeg, this.statusEl),
+        this.titleEl, this.picker, this.modeSeg, this.roundsSel, this.statusEl),
       this.hostForm,
       this.modeNoteEl,
       this.summary,
@@ -1688,7 +1702,7 @@ class Investigate {
     try {
       /** @type {InvState} */
       const mode = this.mode;
-      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ target, mode }), { method: 'POST', headers: invHeaders() }, 1);
+      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ target, mode, rounds: String(this.rounds) }), { method: 'POST', headers: invHeaders() }, 1);
       if (target !== this.target || mode !== this.mode) return;
       this.invErr = '';
       this.setInv(r);
@@ -1722,7 +1736,7 @@ class Investigate {
     this.hostIn.removeAttribute('aria-invalid');
     try {
       /** @type {InvState} */
-      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ host, mode: this.mode }), { method: 'POST', headers: invHeaders() }, 1);
+      const r = await fetchJSON('api/investigate?' + new URLSearchParams({ host, mode: this.mode, rounds: String(this.rounds) }), { method: 'POST', headers: invHeaders() }, 1);
       this.poking = false;
       this.hostIn.value = hostOf(r.target); // as the server normalised it
       openInvestigate(r.target);
@@ -1790,7 +1804,7 @@ class Investigate {
     } else if (this.invIdle) {
       kids.push(h('span', { class: 'pill', text: 'Not tracing' }));
       kids.push(h('button', { class: 'tbtn', type: 'button', text: 'Trace', disabled: this.poking || null,
-        title: 'Traces this target every few seconds; it stops by itself after about 10 minutes.', onclick: () => this.poke() }));
+        title: `Traces this target every few seconds; it stops by itself after ${this.rounds} rounds (${roundsTime(this.rounds)}).`, onclick: () => this.poke() }));
     } else kids.push(h('span', { class: 'pill', text: 'Starting a trace…' }));
     if (d && d.route) kids.push(h('span', { class: 'muted small', text: `route unchanged since ${fmtWhen(Date.parse(d.route.since))}` }));
     this.statusEl.replaceChildren(...kids);
@@ -1892,7 +1906,7 @@ class Investigate {
       const pending = t && !this.alwaysOn() && !this.invErr && !this.invIdle && (!this.invState || this.invState.state === 'running');
       this.summary.className = 'inv-summary v-warming_up';
       kids.push(h('p', { class: 'is-head', text: pending ? 'Tracing… the first results appear within a few seconds.'
-        : this.invIdle ? 'Not tracing. Click Trace to follow this target’s path for about 10 minutes.' : 'No trace data in this range.' }));
+        : this.invIdle ? `Not tracing. Click Trace to follow this target’s path for ${this.rounds} rounds (${roundsTime(this.rounds)}).` : 'No trace data in this range.' }));
       this.summary.replaceChildren(...kids);
       return;
     }
@@ -2013,13 +2027,13 @@ class Investigate {
     const iv = this.sessionOn() && v ? v.interval_ms : d.interval_ms;
     const m = this.modes().find((x) => x.mode === this.mode);
     return { dst: this.runHost(), start: d.from, end: Math.min(d.to, d.now), intervalMs: iv || 0, hops: d.hops,
-      mode: this.mode, port: d.port || 0, viaICMP: !!m && m.hops_via === 'icmp' };
+      mode: this.mode, port: d.port || 0, viaICMP: !!m && m.hops_via === 'icmp', destHop: this.dest() };
   }
 
   reportText() {
     if (!this.data) return '';
     const r = this.reportInput();
-    return this.repFmt === 'json' ? mtrJSON(r) : this.repFmt === 'csv' ? mtrCSV(r) : mtrText(r);
+    return this.repFmt === 'json' ? mtrJSON(r) : this.repFmt === 'csv' ? mtrCSV(r) : this.repFmt === 'ping' ? pingText(r) : mtrText(r);
   }
 
   /** Fills the report box while it is open. */

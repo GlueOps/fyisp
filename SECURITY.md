@@ -160,12 +160,12 @@ It can't reach your LAN. The safeguards are:
   an address (DNS rebinding);
 - the ports are fixed: TCP traces go to port 443 only, UDP traces to
   33434; there is no port parameter, so it can't scan ports;
-- each trace stops by itself after 250 rounds (about 10 minutes); re-posting
-  doesn't extend it;
+- each trace stops by itself after the rounds asked for, at most 250
+  (about 10 minutes); re-posting doesn't extend it;
 - at most 4 run at once (429 `busy`), checked before a host is looked up;
 - the per-router probe cap is unchanged;
 - the route takes exactly one `target` or `host` parameter, an optional
-  `mode` (`icmp`, `tcp` or `udp`) and no body (a declared length,
+  `mode` (`icmp`, `tcp` or `udp`), an optional `rounds` (10 to 250) and no body (a declared length,
   chunking or anything read is refused), is never cached, and its
   responses carry only the trace's state (target name, mode, rounds,
   times);
@@ -184,7 +184,7 @@ The dashboard's controls:
 | GET the page (`/`) and `static/*` | yes | no | - | the same files for everyone |
 | GET `/api/*`, `/metrics` | yes | yes (401 without) | - | read-only |
 | POST `/api/speed/run`, `/api/speed/config`, `/api/speed/cancel` | yes | yes | yes | one queue, one test at a time |
-| POST `/api/investigate` (`target=` or `host=`, optional `mode=`) | yes | yes | yes | the safeguards above: public hosts only, fixed ports, 4 at once, 250 rounds |
+| POST `/api/investigate` (`target=` or `host=`, optional `mode=` and `rounds=`) | yes | yes | yes | the safeguards above: public hosts only, fixed ports, 4 at once, 250 rounds |
 | POST `/api/storage/target/*`, `/api/storage/check`, `/api/storage/run`, `/api/storage/campaign/*` | yes | yes | yes | `application/json` bodies only; the address rules above; one check (or set of key tries) at a time, 20 s each; rounds wait in the speed-test queue; keys tried first, never returned |
 | POST/DELETE `/api/admin/session` | yes | POST exchanges it for the cookie | `Sec-Fetch-Site` only (the token header and DELETE need a CORS preflight, never granted) | - |
 

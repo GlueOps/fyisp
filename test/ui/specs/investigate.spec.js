@@ -342,3 +342,74 @@ for (const width of [1400, 390]) {
     await hops.screenshot({ path: `out/shots/investigate-hops-${width}.png` });
   });
 }
+
+test('the rounds picker sets the next trace’s rounds and is kept', async ({ page }) => {
+  const target = await onDemandTarget(page, 2);
+  /** @type {string[]} */
+  const asked = [];
+  await page.route('**/api/investigate?*', async (route) => {
+    const u = new URL(route.request().url());
+    asked.push(u.searchParams.get('rounds') || '');
+    const n = Number(u.searchParams.get('rounds'));
+    return route.fulfill({ json: { target, state: 'finished', rounds_done: n, rounds_max: n, interval_ms: 2500, started_at: Date.now() - 1000, finished_at: Date.now() } });
+  });
+  await page.goto('/#' + new URLSearchParams({ t: target }));
+  const sel = page.locator('#inv select.inv-rounds');
+  await expect(sel).toHaveValue('100');
+  await expect.poll(() => asked).toEqual(['100']);
+  await sel.selectOption('10');
+  await page.locator('#inv .inv-status button', { hasText: 'Trace again' }).click();
+  await expect.poll(() => asked).toEqual(['100', '10']);
+  await page.reload();
+  await expect(page.locator('#inv select.inv-rounds')).toHaveValue('10');
+});
+
+test('the ping summary reports the destination’s packets, loss and RTTs', async ({ page }) => {
+  await page.goto('/');
+  const text = await page.evaluate(async () => {
+    const { pingText } = await import('/static/invreport.js');
+    const hops = [
+      { hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1, stdev: 0 },
+      { hop: 2, ip: '8.8.8.8', n: 98, lost: 2, loss: 0.02, min: 10.5, mean: 12.25, max: 20, stdev: 1.5 },
+    ];
+    return pingText({ dst: 'dns.google', start: 0, end: 250000, intervalMs: 2500, hops });
+  });
+  const lines = text.split('\n');
+  expect(lines[0]).toBe('--- dns.google ping statistics ---');
+  expect(lines[1]).toBe('100 packets transmitted, 98 received, 2% packet loss');
+  expect(lines[2]).toBe('rtt min/avg/max/mdev = 10.500/12.250/20.000/1.500 ms');
+  expect(lines[4]).toContain('ICMP echo probes');
+  expect(lines[4]).toContain('The destination is hop 2');
+});
+
+test('the ping summary takes the route’s destination, not a deeper stray row, and says when it never answered', async ({ page }) => {
+  await page.goto('/');
+  const [stray, silent, hourly] = await page.evaluate(async () => {
+    const { pingText } = await import('/static/invreport.js');
+    const base = { dst: 'dns.google', start: 0, end: 250000, intervalMs: 2500 };
+    const dest = { hop: 2, ip: '8.8.8.8', n: 90, lost: 10, loss: 0.1, min: 10, mean: 11, max: 12, stdev: 0.5 };
+    const one = { hop: 3, ip: '8.8.8.8', n: 1, lost: 0, loss: 0, min: 11, mean: 11, max: 11, stdev: 0 };
+    return [
+      pingText({ ...base, destHop: 2, hops: [{ hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1 }, dest, one] }),
+      pingText({ ...base, destHop: 2, hops: [{ hop: 1, ip: '192.168.1.1', n: 100, lost: 0, loss: 0, min: 1, mean: 1, max: 1 }, { hop: 2, no_reply: true, n: 0, lost: 100, loss: 1, min: null, mean: null, max: null }] }),
+      pingText({ ...base, destHop: 2, hops: [{ ...dest, stdev: null }] }),
+    ];
+  });
+  expect(stray.split('\n')[1]).toBe('100 packets transmitted, 90 received, 10% packet loss');
+  expect(stray).toContain('The destination is hop 2;');
+  expect(silent.split('\n')[1]).toBe('100 packets transmitted, 0 received, 100% packet loss');
+  expect(silent).not.toContain('rtt');
+  expect(silent).toContain('hop 2, which never answered');
+  expect(hourly.split('\n')[2]).toBe('rtt min/avg/max = 10.000/11.000/12.000 ms');
+});
+
+test('the rounds picker shows on an always-on target too, and Copy report offers the ping summary', async ({ page }) => {
+  await page.goto('/#' + new URLSearchParams({ t: 'Google DNS 8.8.8.8' }));
+  const inv = page.locator('#inv');
+  await expect(inv.locator('.inv-status .pill', { hasText: 'Always-on trace' })).toBeVisible();
+  await expect(inv.locator('select.inv-rounds')).toBeVisible();
+  await expect(inv.locator('select.inv-rounds')).toBeEnabled();
+  await inv.locator('details.inv-report summary').click();
+  await inv.locator('.inv-rep-bar button', { hasText: 'Ping summary' }).click();
+  await expect(inv.locator('textarea.inv-rep-text').first()).toHaveValue(/^--- .* ping statistics ---\n\d+ packets transmitted, \d+ received, [\d.]+% packet loss\nrtt min\/avg\/max\/mdev = /);
+});

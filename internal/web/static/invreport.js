@@ -11,7 +11,7 @@
  *   last?:number|null,stdev?:number|null}} ReportHop
  */
 /**
- * @typedef {{dst:string,start:number,end:number,intervalMs:number,hops:ReportHop[],mode?:string,port?:number,viaICMP?:boolean}} ReportInput
+ * @typedef {{dst:string,start:number,end:number,intervalMs:number,hops:ReportHop[],mode?:string,port?:number,viaICMP?:boolean,destHop?:number}} ReportInput
  */
 
 export const SRC = 'fyisp';
@@ -124,6 +124,26 @@ export function mtrCSV(r) {
     const v = nums(main);
     lines.push([SRC, t, 'OK', q(r.dst), hop, q(hostName(main)), asnName(main), f(v.loss), v.snt, '', f(v.last), f(v.avg), f(v.best), f(v.wrst), f(v.stdev)].join(','));
   }
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Ping's statistics for the destination, as `ping -c N` prints them, from the same rounds. The destination is
+ * destHop (the current route's length): a deeper row can hold a few stray samples (a lost probe at the
+ * destination's TTL in the first round, or an older, longer route).
+ * @param {ReportInput} r
+ */
+export function pingText(r) {
+  const rows = byHop(r.hops);
+  const at = rows.find((x) => x.hop === r.destHop);
+  const last = at ? at.main : rows.length ? rows[rows.length - 1].main : null;
+  const v = nums(last);
+  const rx = last ? last.n : 0;
+  const f3 = (/** @type {number|null} */ f) => (f == null ? '-' : f.toFixed(3));
+  const lines = [`--- ${r.dst} ping statistics ---`,
+    `${v.snt} packets transmitted, ${rx} received, ${+v.loss.toFixed(2)}% packet loss`];
+  if (rx) lines.push(v.stdev == null ? `rtt min/avg/max = ${f3(v.best)}/${f3(v.avg)}/${f3(v.wrst)} ms` : `rtt min/avg/max/mdev = ${f3(v.best)}/${f3(v.avg)}/${f3(v.wrst)}/${f3(v.stdev)} ms`);
+  lines.push('', `${footer(r)} The destination is hop ${last ? last.hop : 0}${rx ? '' : ', which never answered'}; mdev is the standard deviation.`);
   return lines.join('\n') + '\n';
 }
 

@@ -2,7 +2,7 @@
 
 Part of the [API index](API.md).
 
-An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for **250 rounds** (about 10.4 minutes), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected.
+An on-demand trace follows one profile target's path, or the path to [any public host](#hosts-outside-the-profile), hop by hop every 2.5 s, for the **rounds** asked for (10 to 250: about 25 s to 10.4 minutes; the dashboard asks for 100 unless you pick another, the API defaults to 250), and then stops by itself. Always-on traces (`trace: true` in the profile) are not affected.
 
 ## Probe types
 
@@ -48,18 +48,18 @@ There is no body. The checks are:
 | Public addresses only | a `host` must resolve to public IPv4 addresses only (see [below](#hosts-outside-the-profile)) |
 
 **Request rules:**
-- Exactly one `target` or `host` parameter, at most one `mode` (default `icmp`) and nothing else, with no body: a declared length or chunking is refused before reading, and anything sent anyway is read up to 1 KiB and refused.
+- Exactly one `target` or `host` parameter, at most one `mode` (default `icmp`), at most one `rounds` (10 to 250, default 250; anything else is 400 `bad_request`) and nothing else, with no body: a declared length or chunking is refused before reading, and anything sent anyway is read up to 1 KiB and refused.
 - `target` is a profile target name, or the name of a host's trace (`host:example.com`), which is the same as `host=example.com`.
 - There is no port parameter: TCP traces always go to port 443, UDP traces to port 33434.
 - Every response past the host check has `Cache-Control: no-store`.
 - Logs name the target and the error, never the client.
 
 **What a POST does:**
-- **Trace running:** returns its state. It doesn't extend the trace or reset the count.
-- **Trace finished:** starts a fresh 250 rounds.
+- **Trace running:** returns its state. It doesn't extend the trace, reset the count or change its rounds (`rounds_max` says how many it runs).
+- **Trace finished:** starts afresh, with the `rounds` of this POST.
 - Only starts that succeed take a slot; refused ones (no slot, unknown target, a refused host, a tracer error) don't.
 
-Client addresses behind a tunnel can't be trusted, so the admin token, the slots, the 250 rounds, the public-address check and the tracer's per-router probe cap are the only bounds on a script that starts traces.
+Client addresses behind a tunnel can't be trusted, so the admin token, the slots, the 250-round limit, the public-address check and the tracer's per-router probe cap are the only bounds on a script that starts traces.
 
 **Response 200:**
 
@@ -74,7 +74,7 @@ Client addresses behind a tunnel can't be trusted, so the admin token, the slots
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `bad_request` | a parameter other than one `target` or `host` and one `mode` (a `port` too), an empty one, an unknown `mode`, or a body |
+| 400 | `bad_request` | a parameter other than one `target` or `host`, one `mode` and one `rounds` (a `port` too), an empty one, an unknown `mode`, `rounds` outside 10 to 250, or a body |
 | 400 | `bad_host` | `host` is not a DNS name or an IPv4 address (an IPv6 address, a port, a scheme or a path included) |
 | 400 | `unsupported_mode` | this machine can't trace with `mode` (see `modes`) |
 | 401 | `unauthorized` | no or the wrong admin token (checked first, after the `Host`) |
