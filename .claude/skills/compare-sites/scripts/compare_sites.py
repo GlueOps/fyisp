@@ -41,7 +41,7 @@ MAX_CSV = 512 << 20  # decompressed bytes read from one file
 
 SITE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 LINK_RE = re.compile(
-    r"^(https?)://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253})(?::([0-9]{1,5}))?/#admin=([A-Za-z0-9._~-]{32,256})$")
+    r"^(https?)://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253})(?::([0-9]{1,5}))?/#admin=([A-Za-z0-9._~-]{32,255})$")
 KNOWN_CODES = {"bad_request", "unauthorized", "forbidden", "not_found", "method_not_allowed",
                "unknown_host", "unavailable", "busy", "too_large", "error"}
 
@@ -93,15 +93,6 @@ def fnum(s):
 
 def median(xs):
     return statistics.median(xs) if xs else None
-
-
-def pct(xs, q):
-    xs = sorted(xs)
-    if not xs:
-        return None
-    k = (len(xs) - 1) * q
-    lo, hi = math.floor(k), math.ceil(k)
-    return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
 
 
 # ---------- sites ----------
@@ -187,11 +178,26 @@ class Deadline:
             raise OutOfTime()
 
 
-def http_get(s, path, dl, dest=None, tries=6):
-    """GET base+path with the token in a header only. Returns (status, body bytes or None, headers).
-    With dest, the body is streamed to that file (gzip kept as gzip, else compressed here)."""
+TRIES = 6
+
+
+def _net_status(e):
+    reason = getattr(e, "reason", e)
+    if isinstance(reason, TimeoutError):
+        return "timeout"
+    if isinstance(reason, ConnectionRefusedError):
+        return "refused"
+    if isinstance(reason, socket.gaierror):
+        return "dns"
+    return "network"
+
+
+def http_get(s, path, dl, dest=None):
+    """GET base+path with the token in a header only. Returns (status, body, headers): status is the HTTP
+    status or timeout/refused/dns/network. With dest, a 200 body is streamed to that file (gzip kept as
+    gzip, else compressed here) and body is its size; otherwise body is the (decoded) bytes."""
     url = base_url(s) + path
-    for attempt in range(tries):
+    for attempt in range(TRIES):
         dl.check()
         req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip", "User-Agent": "fyisp-compare-sites"})
         req.add_unredirected_header("Authorization", "Bearer " + s["token"])
@@ -199,58 +205,48 @@ def http_get(s, path, dl, dest=None, tries=6):
             resp = _opener.open(req, timeout=max(5, min(dl.left(), 120)))
         except urllib.error.HTTPError as e:
             status, headers, body = e.code, e.headers, e.read(65536)
-            if status == 429 and attempt + 1 < tries:
-                wait = min(int(headers.get("Retry-After", "5") or 5), 10)
+            if status == 429 and attempt + 1 < TRIES:
+                ra = headers.get("Retry-After", "5")
+                wait = min(int(ra) if ra.isdigit() else 5, 10)
                 dl.check(wait + 5)
                 say(f"[fetch] {s['name']}: busy (another export runs), retrying in {wait} s")
                 time.sleep(wait)
                 continue
             return status, _decode(body, headers), headers
-        except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as e:
-            reason = getattr(e, "reason", e)
-            if isinstance(reason, (socket.timeout, TimeoutError)):
-                return "timeout", None, {}
-            if isinstance(reason, ConnectionRefusedError):
-                return "refused", None, {}
-            if isinstance(reason, socket.gaierror):
-                return "dns", None, {}
-            return "network", None, {}
-        with resp:
-            gz = resp.headers.get("Content-Encoding", "").lower() == "gzip"
-            if dest is None:
-                body = _read_capped(resp, dl)
-                return resp.status, _decode(body, resp.headers), resp.headers
-            tmp = dest + ".part"
-            with open(tmp, "wb") as raw:
-                out = raw if gz else gzip.GzipFile(fileobj=raw, mode="wb")
-                n = 0
-                while True:
-                    dl.check(2)
-                    chunk = resp.read(1 << 16)
-                    if not chunk:
-                        break
-                    n += len(chunk)
-                    if n > MAX_BODY:
-                        raise Blocked(f"{s['name']}: an answer was larger than any fyisp export. "
-                                      "Check that the link points at fyisp")
-                    out.write(chunk)
-                if out is not raw:
-                    out.close()
+        except OSError as e:
+            return _net_status(e), None, {}
+        tmp = dest + ".part" if dest else None
+        try:
+            with resp:
+                gz = resp.headers.get("Content-Encoding", "").lower() == "gzip"
+                want = resp.headers.get("Content-Length")
+                buf = open(tmp, "wb") if dest else io.BytesIO()
+                with buf:
+                    out = buf if gz or not dest else gzip.GzipFile(fileobj=buf, mode="wb")
+                    n = 0
+                    while True:
+                        dl.check(2)
+                        chunk = resp.read(1 << 16)
+                        if not chunk:
+                            break
+                        n += len(chunk)
+                        if n > MAX_BODY:
+                            raise Blocked(f"{s['name']}: an answer was larger than any fyisp export. "
+                                          "Check that the link points at fyisp")
+                        out.write(chunk)
+                    if out is not buf:
+                        out.close()
+                    if want and want.isdigit() and n != int(want):
+                        return "network", None, {}  # the connection dropped mid-answer
+                    if not dest:
+                        return resp.status, _decode(buf.getvalue(), resp.headers), resp.headers
             os.replace(tmp, dest)
             return resp.status, n, resp.headers
-    return 429, None, {}
-
-
-def _read_capped(resp, dl):
-    buf = io.BytesIO()
-    while True:
-        dl.check(2)
-        chunk = resp.read(1 << 16)
-        if not chunk:
-            return buf.getvalue()
-        buf.write(chunk)
-        if buf.tell() > MAX_BODY:
-            raise OutOfTime()
+        except OSError as e:
+            return _net_status(e), None, {}
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
 
 
 def _decode(body, headers):
@@ -319,10 +315,11 @@ def fetch_status(s, dl):
 
 
 def fetch_site(s, win, data, man, dl):
-    """Fetch one site's status, compare.csv and survey chunks into data/, recording each in man."""
+    """Fetch one site's status, compare.csv and the survey hours not fetched yet into data/, recording each in man."""
     name = s["name"]
-    entry = man["sites"].setdefault(name, {"files": {}, "survey_errors": []})
+    entry = man["sites"].setdefault(name, {"files": {}})
     entry["host"] = f"{s['host']}:{s['port']}"
+    entry["survey_errors"] = []  # a resume tries every missing hour again
     st = fetch_status(s, dl)
     entry["status"] = st
     say(f"[fetch] {name}: fyisp {st['version']}, profile {st['profile'] or '?'}, survey {st['survey']}")
@@ -337,13 +334,22 @@ def fetch_site(s, win, data, man, dl):
     if st["survey"] in ("off", ""):
         return
     chunks = entry["files"].setdefault("survey", {})
-    todo = [(a, min(a + SURVEY_CHUNK_H, hi)) for a in range(lo, hi, SURVEY_CHUNK_H)]
+    done = {h for c in chunks.values() for h in range(hour_of(c["from"]), hour_of(c["to"]))}
+    todo = []
+    for a in range(lo, hi, SURVEY_CHUNK_H):
+        run = []
+        for h in range(a, min(a + SURVEY_CHUNK_H, hi)):
+            if h in done:
+                if run:
+                    todo.append((run[0], run[-1] + 1))
+                run = []
+            else:
+                run.append(h)
+        if run:
+            todo.append((run[0], run[-1] + 1))
     while todo:
         a, b = todo.pop(0)
-        key = iso(a)
-        if key in chunks:
-            continue
-        f = f"{name}-survey-{iso(a)[:13].replace('-', '')}.csv.gz"
+        f = f"{name}-survey-{iso(a)[:13].replace('-', '')}-{b - a}h.csv.gz"
         status, n, _ = http_get(s, "api/survey.csv?" + rng(a, b), dl, os.path.join(data, f))
         if status in (413, 524) and b - a > 1:
             mid = (a + b) // 2
@@ -353,7 +359,7 @@ def fetch_site(s, win, data, man, dl):
             entry["survey_errors"].append(f"{iso(a)}: {status}")
             say(f"[fetch] {name}: survey {iso(a)} failed ({status}); the report marks it")
             continue
-        chunks[key] = {"file": f, "to": iso(b)}
+        chunks[f] = {"file": f, "from": iso(a), "to": iso(b)}
         say(f"[fetch] {name}: survey {iso(a)[11:16]}+{b - a}h {n / 1e6:.1f} MB")
 
 
@@ -403,9 +409,9 @@ def read_compare(path, site, win):
     return rows, meta
 
 
-def read_survey(paths, site, win, want, owners, rdns, flags):
-    """For the targets in want: {target: {hour: main path}}, a main path being {ttl: (ip, asn, min_ms)}
-    plus its last router. Fills owners (asn -> name) and rdns (ip -> name) for every row."""
+def read_survey(paths, site, win, want, owners, rdns, flags, reach):
+    """For the targets in want: {target: {hour: {"dest": ip, "hops": [(ttl, ip, asn, min_ms)]}}}, the
+    hour's main path (most rounds). Fills owners (asn -> name) and rdns (ip -> name) from every row."""
     lo, hi = win
     paths_by = defaultdict(lambda: defaultdict(dict))  # target -> hour -> pathkey -> path
     for p in paths:
@@ -419,22 +425,26 @@ def read_survey(paths, site, win, want, owners, rdns, flags):
             for rec in r:
                 if len(rec) != len(head):
                     continue
-                asn, ip = rec[ix["asn"]], rec[ix["ip"]]
-                if asn and asn not in owners:
+                asn, ip, status = rec[ix["asn"]], rec[ix["ip"]], rec[ix["status"]]
+                if asn and asn not in owners and status == "answered":
                     owners[asn] = clean(cell(rec[ix["owner"]]))
                 if ip and ip not in rdns:
                     rdns[ip] = clean(cell(rec[ix["rdns"]]), 80)
                 t = cell(rec[ix["target"]])
+                reach[site][0].add(t)
+                if status == "answered" and asn:
+                    reach[site][1].add(t)
                 if t not in want:
                     continue
                 h = hour_of(rec[ix["hour"]])
                 if not lo <= h < hi:
                     continue
                 key = (rec[ix["dest_ip"]], rec[ix["rounds"]], rec[ix["fixed_flow"]])
-                path = paths_by[t][h].setdefault(key, {"rounds": int(rec[ix["rounds"]] or 0), "ttl": {},
+                path = paths_by[t][h].setdefault(key, {"rounds": int(rec[ix["rounds"]] or 0), "ttl": {}, "dest": key[0],
                                                        "ecmp": rec[ix["fixed_flow"]] != rec[ix["rounds"]]
                                                        or rec[ix["hops_via"]] == "icmp"})
-                if rec[ix["status"]] != "answered" or not ip:
+                # provider hops have no address but their RTT starts the path's envelope
+                if not (status == "answered" and ip or status == "provider"):
                     continue
                 ttl, n, mn = int(rec[ix["ttl"]]), int(rec[ix["n"]] or 0), fnum(rec[ix["min_ms"]])
                 cur = path["ttl"].get(ttl)
@@ -450,7 +460,7 @@ def read_survey(paths, site, win, want, owners, rdns, flags):
             if main["ecmp"]:
                 flags[site] += 1
             hops = [(ttl, ip, asn, mn) for ttl, (ip, asn, _, mn) in sorted(main["ttl"].items())]
-            out[t][h] = hops
+            out[t][h] = {"dest": main["dest"], "hops": hops}
     return out
 
 
@@ -531,31 +541,62 @@ def prefix(ip):
     return ipaddress.ip_network(f"{ip}/{24 if a.version == 4 else 48}", strict=False)
 
 
-def jump(hops):
-    """The hop where the lower envelope of per-TTL best RTTs rises most (robust to routers that
-    deprioritise their own replies). hops: [(ttl, ip, asn, min_ms)]. Returns (hop, prev, step_ms)."""
-    resp = [x for x in hops if x[1] and x[3] is not None]
-    if len(resp) < 2:
-        return None, None, 0.0
-    floor, m = [], float("inf")
-    for x in reversed(resp):
-        m = min(m, x[3])
-        floor.append(m)
-    floor.reverse()
-    best_i, best = None, 0.0
-    for i in range(1, len(resp)):
-        inc = floor[i] - floor[i - 1]
-        if inc > best:
-            best_i, best = i, inc
-    if best_i is None:
-        return None, None, 0.0
-    return resp[best_i], resp[best_i - 1], best
+def envelope(hops):
+    """Each hop with the lowest best RTT from it to the destination (robust to routers that
+    deprioritise their own replies). hops: [(ttl, ip, asn, min_ms)] -> [(ttl, ip, asn, floor_ms)]."""
+    pts = [h for h in hops if h[3] is not None]
+    out, m = [], float("inf")
+    for ttl, ip, asn, mn in reversed(pts):
+        m = min(m, mn)
+        out.append((ttl, ip, asn, m))
+    return out[::-1]
+
+
+def where_added(hs, hf, thr):
+    """Where the slower path (hs) gains its time over the faster one (hf), from one hour's main paths.
+    The gap is measured where the slower path enters each network both paths cross, and at the
+    destination; the biggest increase between two such points is where the time is added. A step
+    both paths share (an ocean crossing) adds nothing to the gap."""
+    es, ef = envelope(hs), envelope(hf)
+    if len(es) < 2 or not ef:
+        return None
+    entry_f = {}
+    for _, _, asn, fl in ef:
+        if asn and asn not in entry_f:
+            entry_f[asn] = fl
+    points, seen = [], set()
+    for i, (_, _, asn, fl) in enumerate(es):
+        if asn and asn in entry_f and asn not in seen:
+            seen.add(asn)
+            points.append((asn, fl - entry_f[asn], i))
+    points.append(("end", es[-1][3] - ef[-1][3], len(es) - 1))
+    best, prev = None, (None, 0.0, -1)
+    for asn, gap, i in points:
+        inc = gap - prev[1]
+        if best is None or inc > best[0]:
+            best = (inc, prev[0], prev[2], asn, i)
+        prev = (asn, gap, i)
+    inc, _, start, at, end = best
+    if inc < thr:
+        return None
+    # Within that stretch, the hop where the slower path's envelope rises most: the time is added there,
+    # after the router before it.
+    base = es[start][3] if start >= 0 else 0.0
+    k, rise = start + 1, float("-inf")
+    for j in range(start + 1, end + 1):
+        if es[j][3] - base > rise:
+            k, rise = j, es[j][3] - base
+        base = es[j][3]
+    net = es[k][2] or next((h[2] for h in es[k:] if h[2]), None)
+    before = next((h[2] for h in reversed(es[:k]) if h[2] and h[2] != net), None)
+    router = next((h[1] for h in reversed(es[:k]) if h[1]), None) or next((h[1] for h in es[k:] if h[1]), None)
+    return {"network": net, "prev": before, "router": router, "step_ms": round(inc, 1), "at": at}
 
 
 def cause(res, ra, rb, sa, sb, a, b):
-    """First matching cause for a slower target. ra/rb: hourly compare rows, sa/sb: survey paths."""
+    """First matching cause for a slower target. ra/rb: hourly compare rows, sa/sb: survey paths
+    ({hour: {"dest": ip, "hops": [...]}})."""
     S = res["slower"]
-    F = res["faster"]
     rs, rf = (ra, rb) if S == a else (rb, ra)
     ss, sf = (sa, sb) if S == a else (sb, sa)
     ev = {}
@@ -565,7 +606,9 @@ def cause(res, ra, rb, sa, sb, a, b):
     df = {d for r in rf.values() for d in r["dests"]}
     if ds and df:
         try:
-            if not {prefix(d) for d in ds} & {prefix(d) for d in df}:
+            ns, nf = {prefix(d) for d in ds}, {prefix(d) for d in df}
+            # a large rotating pool shows few repeats in a short window: not GeoDNS
+            if not ns & nf and len(ns) <= 4 and len(nf) <= 4:
                 return "geodns", {"slower_dests": len(ds), "faster_dests": len(df)}
         except ValueError:
             pass
@@ -573,44 +616,43 @@ def cause(res, ra, rb, sa, sb, a, b):
     ps = mode([rs[h]["as_path"] for h in shared])
     pf = mode([rf[h]["as_path"] for h in shared])
     ev["slower_path"], ev["faster_path"] = list(ps or ()), list(pf or ())
-    if res.get("geo") == "global" and ds & df and ss and sf:
-        ls = mode([hops[-1][1] for hops in ss.values() if hops])
-        lf = mode([hops[-1][1] for hops in sf.values() if hops])
-        if ls and lf and ls != lf:
-            ev.update(slower_last=ls, faster_last=lf)
-            return "anycast", ev
     if ps and pf:
         meet = next((x for x in ps if x in pf), None)
         if meet is not None:
             after_s = len(ps) - ps.index(meet) - 1
             after_f = len(pf) - pf.index(meet) - 1
             if after_s > after_f:
-                nxt = ps[ps.index(meet) + 1]
-                ev.update(meet=meet, network=nxt, prev=meet, extra_networks=after_s - after_f)
+                ev.update(network=ps[ps.index(meet) + 1], prev=meet, extra_networks=after_s - after_f)
                 return "longer_path", ev
-    if ss:
-        delta = res["delta_ms"] or 0
-        steps = []
-        for h, hops in ss.items():
-            hop, prev, step = jump(hops)
-            if hop and step >= max(MIN_MS, 0.5 * delta):
-                steps.append((hop[2], prev[2], hop[1], step))
-        if steps and len(steps) >= len(ss) / 2:
-            x = mode([s[0] for s in steps])
-            sel = [s for s in steps if s[0] == x] or steps
-            ev.update(network=x, prev=mode([s[1] for s in sel]), router=mode([s[2] for s in sel]),
-                      step_ms=round(median([s[3] for s in sel]), 1))
+    both = [h for h in ss if h in sf and ss[h]["hops"] and sf[h]["hops"]]
+    if both:
+        thr = max(MIN_MS, 0.5 * (res["delta_ms"] or 0))
+        found = [w for w in (where_added(ss[h]["hops"], sf[h]["hops"], thr) for h in both) if w]
+        if found and len(found) >= len(both) / 2:
+            net = mode([w["network"] for w in found])
+            sel = [w for w in found if w["network"] == net] or found
+            ev.update(network=net, prev=mode([w["prev"] for w in sel]), router=mode([w["router"] for w in sel]),
+                      step_ms=round(median([w["step_ms"] for w in sel]), 1))
+            dest_asn = (ps or (None,))[-1]
+            same_dest = bool(ds & df)
+            if res.get("geo") == "global" and same_dest and (mode([w["at"] for w in sel]) == "end" or net == dest_asn):
+                return "anycast", ev
             return "latency_inside", ev
     paths_s = {rs[h]["as_path"] for h in shared if rs[h]["as_path"]}
     lat = [h for h in shared if rs[h]["p50"] is not None and rf[h]["p50"] is not None]
     if len(paths_s) == 1 and len(lat) >= 6:
-        sp = pct([rs[h]["p50"] for h in lat], .9) - pct([rs[h]["p50"] for h in lat], .1)
-        fp = pct([rf[h]["p50"] for h in lat], .9) - pct([rf[h]["p50"] for h in lat], .1)
+        spread = lambda xs: (lambda q: q[-1] - q[0])(statistics.quantiles(xs, n=10, method="inclusive"))
+        sp, fp = spread([rs[h]["p50"] for h in lat]), spread([rf[h]["p50"] for h in lat])
         need = max(MIN_MS, 0.5 * (res["delta_ms"] or 0))
         if sp >= need and fp < need:
             ev.update(slower_spread_ms=round(sp, 1), faster_spread_ms=round(fp, 1))
             return "congestion", ev
-    if ss:
+    if ps and pf and ps != pf:
+        net = next((x for x in ps if x not in pf), ps[0])
+        i = ps.index(net)
+        ev.update(network=net, prev=ps[i - 1] if i else None)
+        return "different_route", ev
+    if ps and ps == pf:
         return "same_path_unexplained", ev
     return "no_survey", ev
 
@@ -618,12 +660,13 @@ def cause(res, ra, rb, sa, sb, a, b):
 CAUSE_TEXT = {
     "unreachable": "unreachable from the slower site",
     "geodns": "GeoDNS: each site is sent to different servers",
-    "anycast": "anycast: same address, a different (farther) site answers",
+    "anycast": "anycast: same address, a farther site of the network answers",
     "longer_path": "longer path: more networks after the paths meet",
-    "latency_inside": "latency added inside one network",
+    "latency_inside": "latency added in one network",
     "congestion": "congestion: same path, latency varies by hour",
+    "different_route": "different route, no single place adds the time",
     "same_path_unexplained": "same path, unexplained",
-    "no_survey": "no path survey data",
+    "no_survey": "no path survey data at one or both sites",
 }
 
 
@@ -649,15 +692,21 @@ def analyze(names, win, data, man, warnings):
     slower = [r for r in results if r["slower"] and not r["thin"]]
     want = {r["target"] for r in slower}
     owners, rdns, flags = {}, {}, Counter()
+    reach = {n: (set(), set()) for n in names}  # targets surveyed, and those with a router answering past the provider
     surveys = {}
     for n in names:
         chunks = man["sites"][n]["files"].get("survey") or {}
-        surveys[n] = read_survey([os.path.join(data, c["file"]) for c in chunks.values()], n, win, want, owners, rdns, flags)
+        surveys[n] = read_survey([os.path.join(data, c["file"]) for c in chunks.values()], n, win, want, owners, rdns, flags, reach)
     for r in slower:
         t = r["target"]
         r["cause"], r["evidence"] = cause(r, rows[a][(t, r["kind"])], rows[b][(t, r["kind"])],
                                           surveys[a].get(t, {}), surveys[b].get(t, {}), a, b)
     for n in names:
+        seen, past = reach[n]
+        if len(seen) >= 20 and len(past) < len(seen) / 2:
+            warnings.append({"code": "survey_blind", "site": n,
+                             "detail": f"routers past its provider answered the path survey for only {len(past)} of {len(seen)} "
+                                       "targets (its network, or a firewall there, drops their replies): causes for it are unknown"})
         if want and not surveys[n] and man["sites"][n]["status"]["survey"] not in ("off", ""):
             warnings.append({"code": "no_survey_data", "site": n,
                              "detail": "the path survey has no rows in this window (it may have started later): causes can't be found"})
@@ -727,6 +776,13 @@ def common_paths(rows, names, results):
     return out
 
 
+FIX_TEXT = {"peer": "peer", "prefer": "prefer", "new_transit": "new transit"}
+
+
+def med_gap(rs):
+    return round(median([r["delta_ms"] for r in rs if r["delta_ms"] is not None]) or 0, 1)
+
+
 def clusters_and_fixes(results, paths):
     cl = defaultdict(list)
     for r in results:
@@ -738,11 +794,11 @@ def clusters_and_fixes(results, paths):
     for (c, s, x, p), rs in sorted(cl.items(), key=lambda kv: -len(kv[1])):
         clusters.append({"cause": c, "slower": s, "network": x, "prev": p, "targets": len(rs),
                          "router": mode([r["evidence"].get("router") for r in rs]),
-                         "median_delta_ms": round(median([r["delta_ms"] for r in rs if r["delta_ms"] is not None]) or 0, 1),
+                         "median_delta_ms": med_gap(rs),
                          "examples": [r["target"] for r in sorted(rs, key=lambda r: -(r["delta_ms"] or 0))[:5]]})
     fx = defaultdict(list)
     for r in results:
-        if r.get("cause") not in ("longer_path", "latency_inside", "congestion", "same_path_unexplained"):
+        if r.get("cause") not in ("longer_path", "latency_inside", "congestion", "different_route", "same_path_unexplained"):
             continue
         us = first_up(paths[r["slower"]].get(r["target"]))
         uf = first_up(paths[r["faster"]].get(r["target"]))
@@ -751,9 +807,12 @@ def clusters_and_fixes(results, paths):
     fixes = []
     for (s, us, f, uf), rs in sorted(fx.items(), key=lambda kv: -len(kv[1])):
         dest = Counter(paths[f].get(r["target"], ())[-1] for r in rs if paths[f].get(r["target"]))
-        fixes.append({"slower": s, "slower_via": us, "faster": f, "faster_via": uf, "targets": len(rs),
-                      "median_delta_ms": round(median([r["delta_ms"] for r in rs if r["delta_ms"] is not None]) or 0, 1),
-                      "dest_networks": [d for d, _ in dest.most_common(6)]})
+        ups_s = {p[0] for p in paths[s].values() if p}
+        # peer: the faster site reaches the destination network directly; prefer: the slower site
+        # already uses that upstream for other targets; new_transit: it doesn't.
+        kind = "peer" if uf in dest else ("prefer" if uf in ups_s else "new_transit")
+        fixes.append({"slower": s, "slower_via": us, "faster": f, "faster_via": uf, "kind": kind, "targets": len(rs),
+                      "median_delta_ms": med_gap(rs), "dest_networks": [d for d, _ in dest.most_common(6)]})
     return clusters, fixes
 
 
@@ -788,14 +847,13 @@ def lossp(v):
 PH = "[[narrative:{}]] _(written by the agent with run.sh fill)_"
 
 
-def write_outputs(out, names, win, man, results, owners, rdns, warnings, version, partial):
+def write_outputs(out, names, win, man, paths, results, owners, rdns, warnings, version, partial):
     a, b = names
     lo, hi = win
     comp = [r for r in results if not r["thin"]]
     slower = [r for r in comp if r["slower"]]
     counts = Counter(r["faster"] for r in slower)
     causes = Counter(r["cause"] for r in slower)
-    paths = man["_paths"]
     grp = groups(results, names, paths)
     clusters, fixes = clusters_and_fixes(slower, paths)
     window = f"{iso(lo)[:16].replace('T', ' ')}–{iso(hi)[11:16]} UTC, {hi - lo} hours"
@@ -812,7 +870,7 @@ def write_outputs(out, names, win, man, results, owners, rdns, warnings, version
         "median_extra_ms_when_slower": med_extra,
         "causes": {CAUSE_TEXT[c]: k for c, k in causes.most_common()},
         "by_region": {k: v for k, v in sorted(grp["geo"].items())},
-        "fixes": [{"slower": f["slower"], "slower_via": asn_label(f["slower_via"], owners),
+        "fixes": [{"kind": f["kind"], "slower": f["slower"], "slower_via": asn_label(f["slower_via"], owners),
                    "faster": f["faster"], "faster_via": asn_label(f["faster_via"], owners),
                    "targets": f["targets"], "median_delta_ms": f["median_delta_ms"],
                    "dest_networks": [asn_label(d, owners) for d in f["dest_networks"]]} for f in fixes[:8]],
@@ -866,9 +924,11 @@ def write_outputs(out, names, win, man, results, owners, rdns, warnings, version
                      c["targets"], c["median_delta_ms"], ", ".join(code(e) for e in c["examples"][:3])]
                     for c in clusters[:20]]))
     L.append("\n## Suggested routing changes\n")
-    L.append("Where the slower site's first upstream differs from the faster site's for the same targets.\n")
-    L.append(table(["slower", "its upstream", "faster", "its upstream", "targets", "median gap ms", "destination networks"],
-                   [[f["slower"], code(asn_label(f["slower_via"], owners)), f["faster"], code(asn_label(f["faster_via"], owners)),
+    L.append("Where the slower site's first upstream differs from the faster site's for the same targets. Kind: *peer* "
+             "(the faster site reaches the destination network directly), *prefer* (the slower site already has that "
+             "upstream for other targets), *new transit* (it doesn't).\n")
+    L.append(table(["kind", "slower", "its upstream", "faster", "its upstream", "targets", "median gap ms", "destination networks"],
+                   [[FIX_TEXT[f["kind"]], f["slower"], code(asn_label(f["slower_via"], owners)), f["faster"], code(asn_label(f["faster_via"], owners)),
                      f["targets"], f["median_delta_ms"], ", ".join(code(asn_label(d, owners)) for d in f["dest_networks"][:4])]
                     for f in fixes[:12]]))
     L.append("\n" + PH.format("fixes") + "\n")
@@ -889,11 +949,14 @@ def write_outputs(out, names, win, man, results, owners, rdns, warnings, version
              f"is at least {MIN_RATIO}× the other's, or when its loss over those hours is at least {MIN_LOSS * 100:.0f} points higher "
              f"(latency wins when they disagree). Targets with fewer than {THIN_HOURS} shared hours are left out. Confidence is the "
              "share of hours the same rule picks the same site. Causes, first match: unreachable (no answer most hours), GeoDNS (no "
-             "destination /24 in common), anycast (a global target, same address, different last router), longer path (more "
-             "networks after the first network both paths share), latency added inside a network (the lower envelope of each hop's "
-             f"best round trip rises by at least {MIN_MS:.0f} ms and half the gap at that hop, in most hours: 'at or after' that router), "
-             "congestion (one path all window, hourly medians spread at least that much on the slower site only), then same path, "
-             "unexplained. Router names and network owners come from the networks themselves.\n")
+             "destination /24 in common, from a few addresses each), longer path (more networks after the first network both "
+             "paths share), latency added in a network (comparing the two paths' lower envelopes of each hop's best round trip "
+             "where the slower path enters each network both cross: the gap grows by at least "
+             f"{MIN_MS:.0f} ms and half the difference there in most hours; 'at or after' the router named; a step both paths "
+             "share adds nothing), anycast (the same, for a global target with the same address, with the time added in or on the "
+             "way into the destination's network), congestion (one path all window, hourly medians spread at least that much on "
+             "the slower site only), different route, then same path, unexplained. Router names and network owners come from the "
+             "networks themselves.\n")
     write(os.path.join(out, "report.md"), "\n".join(L))
 
     S = [f"# {a} vs {b}: summary\n", "> OK to forward: no addresses or host names.\n", f"**Window:** {window}.\n",
@@ -906,8 +969,8 @@ def write_outputs(out, names, win, man, results, owners, rdns, warnings, version
                 for k, v in sorted(grp["geo"].items(), key=lambda kv: -kv[1]["targets"])])]
     if fixes:
         S += ["\n## Suggested routing changes\n",
-              table(["slower", "its upstream", "faster", "its upstream", "targets", "median gap ms"],
-                    [[f["slower"], asn_label(f["slower_via"], owners), f["faster"], asn_label(f["faster_via"], owners),
+              table(["kind", "slower", "its upstream", "faster", "its upstream", "targets", "median gap ms"],
+                    [[FIX_TEXT[f["kind"]], f["slower"], asn_label(f["slower_via"], owners), f["faster"], asn_label(f["faster_via"], owners),
                       f["targets"], f["median_delta_ms"]] for f in fixes[:8]])]
     S += ["\n## Data quality\n", "; ".join(w["detail"] for w in warnings) or "No problems found."]
     write(os.path.join(out, "share-summary.md"), "\n".join(S) + "\n")
@@ -939,7 +1002,7 @@ def fill(out, text):
             body = re.sub(r"[^\S\n]+\n", "\n", re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", body)).replace("[[", "[").replace("]]", "]")
             body = re.sub(r"<[^>]*>", "", body)[:4000]
             if fn == "share-summary.md":
-                body = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){3,7}\b", "[address]", body)
+                body = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|(?<![\w:])[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?![\w:])", "[address]", body)
             s = s.replace(PH.format(name), body)
         left += [f"{fn}: {m}" for m in re.findall(r"\[\[narrative:([a-z]+)\]\]", s)]
         write(p, s)
@@ -978,19 +1041,20 @@ def window_from(spec, now):
     return lo, hi
 
 
+def load_manifest(data):
+    with open(os.path.join(data, "manifest.json")) as f:
+        man = json.load(f)
+    return man, man["names"], (hour_of(man["window"]["from"]), hour_of(man["window"]["to"]))
+
+
 def run_fetch(args, out):
     data = os.path.join(out, "data")
-    os.makedirs(data, exist_ok=True)
     dl = Deadline(args.deadline)
-    man_path = os.path.join("in", "data", "manifest.json")
-    if os.path.exists(man_path):
-        with open(man_path) as f:
-            man = json.load(f)
+    if os.path.exists(os.path.join("in", "data", "manifest.json")):
+        man, names, win = load_manifest(os.path.join("in", "data"))
         for f in os.listdir(os.path.join("in", "data")):
             if f.endswith(".csv.gz"):
                 os.replace(os.path.join("in", "data", f), os.path.join(data, f))
-        names = man["names"]
-        win = (hour_of(man["window"]["from"]), hour_of(man["window"]["to"]))
     else:
         names = args.names
         if len(names) != 2 or names[0] == names[1] or not all(SITE_RE.match(n) for n in names):
@@ -1013,8 +1077,7 @@ def run_fetch(args, out):
                 timed_out = True
             except Blocked as e:
                 errors[n] = str(e)
-    man_out = {k: v for k, v in man.items() if not k.startswith("_")}
-    write(os.path.join(data, "manifest.json"), json.dumps(man_out, indent=1))
+    write(os.path.join(data, "manifest.json"), json.dumps(man, indent=1))
     keep = ["data/manifest.json"] + [f"data/{f}" for f in os.listdir(data) if f.endswith(".csv.gz")]
     if errors:
         for n in names:
@@ -1026,11 +1089,18 @@ def run_fetch(args, out):
         say("Out of time before every file arrived; what arrived is kept. Continue with: run.sh resume <report folder>")
         emit(out, keep)
         return OUT_OF_TIME
-    return analyze_and_emit(names, win, data, man, out, args.version, keep)
+    try:
+        return analyze_and_emit(names, win, data, man, out, args.version, keep)
+    except BaseException:
+        emit(out, keep)  # the fetched files stay usable for run.sh analyze
+        raise
 
 
 def analyze_and_emit(names, win, data, man, out, version, keep):
     warnings = []
+    for n in names:
+        if not man["sites"].get(n, {}).get("status") or not man["sites"][n]["files"].get("compare"):
+            raise Blocked(f"{n}: this folder has no data from it. Run the comparison again")
     st = {n: man["sites"][n]["status"] for n in names}
     a, b = names
     if st[a]["version"] != st[b]["version"]:
@@ -1047,7 +1117,7 @@ def analyze_and_emit(names, win, data, man, out, version, keep):
         try:
             skew = abs(datetime.fromisoformat(st[n]["now"]).timestamp() - st[n]["fetched"])
             if skew > 60:
-                warnings.append({"code": "clock_skew", "site": n, "detail": f"its clock is {skew:.0f} s off; keep the clocks synchronized"})
+                warnings.append({"code": "clock_skew", "site": n, "detail": f"its clock is {skew:.0f} s off from the machine that ran the comparison; keep the clocks synchronized"})
         except (ValueError, KeyError):
             pass
         if man["sites"][n].get("survey_errors"):
@@ -1055,8 +1125,8 @@ def analyze_and_emit(names, win, data, man, out, version, keep):
     partial = any(man["sites"][n].get("survey_errors") for n in names)
     say("[analyze] comparing targets")
     results, owners, rdns, rows = analyze(names, win, data, man, warnings)
-    man["_paths"] = common_paths(rows, names, results)
-    facts = write_outputs(out, names, win, man, results, owners, rdns, warnings, version, partial)
+    paths = common_paths(rows, names, results)
+    facts = write_outputs(out, names, win, man, paths, results, owners, rdns, warnings, version, partial)
     say(f"[write] {facts['targets_compared']} targets compared: {a} faster for {facts['faster'][a]}, "
         f"{b} faster for {facts['faster'][b]}, {facts['ties']} about the same")
     for w in warnings:
@@ -1069,9 +1139,9 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("mode", choices=["fetch", "analyze", "fill"])
     p.add_argument("--names", nargs="*", default=[])
-    p.add_argument("--window", default="24h")
-    p.add_argument("--deadline", type=float, default=time.time() + 540)
-    p.add_argument("--version", default="dev")
+    p.add_argument("--window")
+    p.add_argument("--deadline", type=float, required=True)
+    p.add_argument("--version", required=True)
     args = p.parse_args(argv)
     out = "out"
     os.makedirs(os.path.join(out, "data"), exist_ok=True)
@@ -1079,12 +1149,8 @@ def main(argv=None):
         if args.mode == "fetch":
             return run_fetch(args, out)
         if args.mode == "analyze":
-            data = os.path.join("in", "data")
-            with open(os.path.join(data, "manifest.json")) as f:
-                man = json.load(f)
-            names = man["names"]
-            win = (hour_of(man["window"]["from"]), hour_of(man["window"]["to"]))
-            return analyze_and_emit(names, win, data, man, out, args.version, [])
+            man, names, win = load_manifest(os.path.join("in", "data"))
+            return analyze_and_emit(names, win, os.path.join("in", "data"), man, out, args.version, [])
         for fn in ("report.md", "share-summary.md"):
             os.replace(os.path.join("in", fn), os.path.join(out, fn))
         with open(os.path.join("in", "narratives.txt")) as f:
@@ -1101,7 +1167,9 @@ def main(argv=None):
         say("Out of time. Continue with: run.sh resume <report folder>")
         return OUT_OF_TIME
     except Exception as e:  # never a traceback: only our own messages reach the transcript
-        say(f"compare-sites failed: {type(e).__name__} at line {traceback.extract_tb(e.__traceback__)[-1].lineno}. Report it with that line")
+        ours = [f for f in traceback.extract_tb(e.__traceback__) if f.filename.endswith("compare_sites.py")]
+        say(f"compare-sites failed: {type(e).__name__} at compare_sites.py line {ours[-1].lineno if ours else '?'}. "
+            "Report it with that line")
         return BLOCKED
 
 

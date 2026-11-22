@@ -15,25 +15,15 @@ The repository ships an agent skill, [`.claude/skills/compare-sites`](../.claude
    ```
 
    A link may use plain `http://` only to this machine (an SSH forward), or, followed by ` http-ok`, to an address on a network you trust (a VPN, Tailscale); otherwise use the `--tunnel` link (`https://…`). You can also paste a link into the session: the skill saves it, and then it is in the session's transcript and logs (restarting fyisp with a new token signs everyone out).
-3. **Run it** from your own directory (the reports go to `./fyisp-reports/`, which must not be committed: run.sh refuses a git repository that doesn't ignore it; this repository does): in Claude Code, open a clone of this repository, or copy the skill folder into your own project's `.claude/skills/` (or `~/.claude/skills/`), and type `/compare-sites site-a site-b 24h` (or a UTC window: `2026-11-22T00:00Z..2026-11-22T12:00Z`, up to 24 hours). The skill starts only when you ask for it.
+3. **Run it** from your own directory. The reports go to `./fyisp-reports/`, which must not be committed: run.sh refuses a git repository that doesn't ignore it (this repository does). In Claude Code, open a clone of this repository, or copy the skill folder into your own project's `.claude/skills/` (or `~/.claude/skills/`), and type `/compare-sites site-a site-b 24h`, or a UTC window of up to 24 whole hours, `2026-11-22T00:00Z..2026-11-22T12:00Z` (twelve hours: the hour at the end is not included). A site not saved yet can come along as `site-b=<link>` after the window; the skill saves it, and the token is then in the session's transcript and logs. The skill starts only when you ask for it, and asks for nothing midway: if a link is missing it stops and says so.
 
 The script can also run without an agent: `.claude/skills/compare-sites/scripts/run.sh compare site-a site-b 24h`, then `run.sh fill <folder>` with the narrative sections on stdin, or read the tables as they are.
 
 **Where it runs.** Its container uses the Docker host's network: on Docker Desktop (macOS, Windows), turn on host networking (Settings → Resources → Network, Docker Desktop 4.34 or newer) to reach an SSH forward on your machine; in a devcontainer that talks to the host's Docker, open SSH forwards on the Docker host, or use the sites' `--tunnel` links. Each run fetches for at most 9 minutes; if that isn't enough, it says so and `run.sh resume <folder>` fetches the rest.
 
-**What it says when it stops.** Each message names the site, what happened and what to do:
+**When it stops**, each message names the site, what happened and what to do. Two need a word more: *the admin token was refused* usually means fyisp restarted without `FYISP_ADMIN_TOKEN` and made a new token, and *the share link's tunnel is down or expired* means the `--tunnel` name changed (fyisp prints the new one in its log).
 
-| Message | What to do |
-|---|---|
-| *not in the sites file* | Add the site's link (step 2). |
-| *the admin token was refused* | The token changed (a restart without `FYISP_ADMIN_TOKEN` makes a new one): save the current link. |
-| *fyisp only answers at its own address and port* | The forward's local port differs from fyisp's (421): forward the same port, or run each site on its own. |
-| *connection refused … from inside Docker* | The forward or tunnel isn't reachable from the container: see *Where it runs*. |
-| *the share link's tunnel is down or expired* | The `--tunnel` name changes when fyisp restarts its tunnel: take the newest from the log. |
-| *plain http … sends the admin token unencrypted* | Use an SSH forward or the tunnel link, or mark a trusted network with ` http-ok`. |
-| *this server has no comparison API* | Upgrade that site. |
-
-The report starts with *Data quality*: different releases or profiles, a survey still on its first pass or off, clocks apart by more than a minute, targets with too few hours, and paths the survey is less sure of (changing flows).
+**The report** starts with *Data quality*: different releases or profiles, a survey still on its first pass or off, a site clock more than a minute off the machine that ran the comparison, targets with too few hours, and paths the survey is less sure of (changing flows). Its causes compare the two paths where they cross the same networks, so a long stretch both share (an ocean crossing) doesn't count; *latency added in a network* names the network and the router after which the slower site's time grows. Its suggested routing changes say what kind of change each is: *peer* (the faster site reaches the destination's network directly), *prefer* (the slower site already has that upstream for other targets) or *new transit*.
 
 ## What to run
 
