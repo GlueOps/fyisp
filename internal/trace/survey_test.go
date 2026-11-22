@@ -36,6 +36,9 @@ type flowNet struct {
 	mu    sync.Mutex
 	ports []uint16
 	busy  map[uint16]bool // ports that fail to bind
+	nat   int             // from this TTL on, a fixed flow's probes go unanswered (0: never)
+	lose  int             // this TTL's first fixed-flow probe goes unanswered (0: none)
+	wait  func()          // called for each unanswered fixed-flow probe (its timeout)
 }
 
 func (f *flowNet) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint16, ttl int, timeout time.Duration) (hops.Hop, error) {
@@ -46,6 +49,19 @@ func (f *flowNet) ProbeFlow(ctx context.Context, dst netip.AddrPort, sport uint1
 	}
 	f.ports = append(f.ports, sport)
 	f.mu.Unlock()
+	if f.lose > 0 && ttl == f.lose {
+		f.lose = 0
+		if f.wait != nil {
+			f.wait()
+		}
+		return hops.Hop{}, nil
+	}
+	if f.nat > 0 && ttl >= f.nat {
+		if f.wait != nil {
+			f.wait()
+		}
+		return hops.Hop{}, nil
+	}
 	return f.fakeNet.ProbeTransport(ctx, hops.TCP, dst, ttl, timeout)
 }
 
@@ -121,6 +137,78 @@ func TestSurveyFixedFlow(t *testing.T) {
 	}
 	if p := h.Paths[0]; p.Rounds != 3 || p.Fixed != 2 || p.Reached != 3 {
 		t.Errorf("path %+v, want 3 rounds, 2 fixed", p)
+	}
+}
+
+// TestSurveyFlowBehindNAT: past a NAT that drops a flow's repeated SYNs,
+// two silent TTLs in a row are asked again from fresh ports, under the
+// default router cap (once each bucket is full again), and the round goes
+// on from fresh ports (not counted as fixed). A silent router right past
+// the NAT doesn't stop that; one lost answer, or routers that answer
+// neither way, keep the flow.
+func TestSurveyFlowBehindNAT(t *testing.T) {
+	type tc struct {
+		name    string
+		routers []string
+		nat     int
+		lose    int // a fixed-flow TTL whose answer is lost once
+		busyTTL int // a TTL whose bucket another trace has just used (the survey must skip it)
+		want    []string
+		fixed   int
+		reached int
+	}
+	for _, c := range []tc{
+		{"nat", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 2, 0, 0, []string{"1:62.1.1.1", "2:62.2.2.2", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
+		{"silent router past nat", []string{"62.1.1.1", "", "62.3.3.3"}, 2, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 0, 1},
+		{"one lost answer", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 0, 2, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 1, 1},
+		{"silent routers", []string{"62.1.1.1", "", "", "62.4.4.4"}, 0, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 1, 1},
+		{"silent routers before nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5", "62.6.6.6"}, 6, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:62.6.6.6", "7:198.51.100.1"}, 0, 1},
+		// a silent destination: its silent tail is asked again twice at most (4 more SYNs)
+		{"silent destination", []string{"62.1.1.1", "62.2.2.2"}, 0, 0, 0, nil, 1, 0},
+		{"two silent routers past nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5"}, 2, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:198.51.100.1"}, 0, 1},
+		{"silent pair right before nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5", "62.6.6.6"}, 4, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:62.6.6.6", "7:198.51.100.1"}, 0, 1},
+		// TTL 3 is left out (its bucket isn't full): TTLs 2 and 4 are no silent run, and TTL 3 isn't probed
+		{"capped ttl between", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3", "62.4.4.4"}, 2, 0, 3, []string{"1:62.1.1.1", "2:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 0, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				// a silent TCP probe waits 900 ms (errqTransport's cap), less than a token's refill
+				f := &flowNet{fakeNet: newFakeNet(c.routers...), busy: map[uint16]bool{}, nat: c.nat, lose: c.lose,
+					wait: func() { time.Sleep(900 * time.Millisecond) }}
+				tr, _, _ := roundTracer(t, f.fakeNet, Options{RouterRate: DefaultRouterRate, Now: time.Now})
+				tr.prober = f
+				if c.busyTTL > 0 {
+					tr.lim.take(limitKey{ttl: c.busyTTL}, time.Now())
+				}
+				if c.want == nil { // the destination never answers
+					for ttl := len(c.routers) + 1; ttl <= surveyMaxHops; ttl++ {
+						f.silent[ttl] = true
+					}
+				}
+				sv := NewSurvey(SurveyOptions{Classify: testClassify, Sink: func(model.SurveyHour) {}})
+				h, _ := tr.surveyRound(context.Background(), sv, surveyTargetFor(model.Target{Name: "svc", Host: "198.51.100.1"}))
+				p := h.Paths[0]
+				var got []string
+				for _, hp := range p.Hops {
+					got = append(got, fmt.Sprintf("%d:%s", hp.TTL, hp.IP))
+				}
+				if c.want != nil && !slices.Equal(got, c.want) || p.Fixed != c.fixed || p.Reached != c.reached || p.Rounds != 1 {
+					t.Errorf("hops %v fixed %d reached %d, want %v fixed %d reached %d", got, p.Fixed, p.Reached, c.want, c.fixed, c.reached)
+				}
+				if c.name == "silent destination" {
+					if n := len(f.log); n != 2+maxUnknown+4 {
+						t.Errorf("%d probes, want %d (2 routers, %d silent TTLs, 2 retries of 2)", n, 2+maxUnknown+4, maxUnknown)
+					}
+				}
+				if c.busyTTL > 0 {
+					for _, r := range f.log {
+						if r.ttl == c.busyTTL {
+							t.Errorf("TTL %d probed despite the cap", c.busyTTL)
+						}
+					}
+				}
+			})
+		})
 	}
 }
 
