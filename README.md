@@ -13,7 +13,7 @@ fyisp is one small program. The default makes 28 checks for homes and remote wor
 
 ## Quick start
 
-For your home connection or a laptop, nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it. To measure a server's connection or compare datacenters, see [On a server](#on-a-server-datacenter-or-office).
+For your home connection or a laptop, nothing to install: paste one command, and a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it. It checks the 28 everyday services above and nothing more. (For a server, a datacenter or an office, see [On a server](#on-a-server-datacenter-or-office) near the end.)
 
 ### Linux and macOS
 
@@ -31,7 +31,7 @@ Open **PowerShell** (not Command Prompt) and paste:
 & ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1)))
 ```
 
-On a NAS, a Raspberry Pi or a home server, use [Docker](#docker). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
+On a NAS, a Raspberry Pi or a home server, use [Docker](#docker-nas-and-raspberry-pi). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
 
 > **On a work laptop**, read [Privacy](#privacy) first: your employer's network sees fyisp's name lookups, YouTube and Netflix included.
 
@@ -58,6 +58,17 @@ Leave the window open: fyisp records only while it runs. **Stop it** with Ctrl-C
 
 ### Options
 
+Every option, with its default (and environment variable, where it has one), is in `fyisp --help` (`fyisp export --help` for exports). With the launcher nothing is installed, so ask the launcher, or Docker:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/latest/download/run.sh | sh -s -- --help
+docker run --rm ghcr.io/glueops/fyisp --help
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --help
+```
+
 Pass options after `sh -s --` on Linux and macOS, after `)))` in PowerShell, and after the image name in Docker:
 
 ```sh
@@ -68,82 +79,15 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 & ([scriptblock]::Create((irm https://github.com/glueops/fyisp/releases/latest/download/run.ps1))) --profile default,streaming
 ```
 
+The ones people use most:
+
 | Option | What it does |
 |---|---|
 | `--profile NAMES` | What to measure, instead of the default. Combine profiles with commas to keep the default's checks, e.g. `default,streaming` or `default,clouds`; `all` is every target (about 1,400). `fyisp profiles` lists them ([What to measure](docs/PROFILES.md)). |
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
 | `--retention 30d` | Keeps less history, and so less disk (the default is 90 days). |
-| `--path-survey` | Also traces the TCP path to every target every 15 minutes and keeps it hour by hour, and the address each target resolved to, to [compare this site with another](docs/COMPARING-SITES.md). The [server command](#on-a-server-datacenter-or-office) turns it on. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
-
-### Docker
-
-On Linux, run the container on the host's network, so that fyisp sees your real home router, and with your own admin token, so that a restart doesn't sign you out:
-
-```sh
-(umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
-FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
-  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
-echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
-```
-
-Open the link the last command prints.
-
-- **From another machine:** replace `127.0.0.1` with the Docker host's address, e.g. `http://192.168.1.10:3000/#admin=…`. The image listens on all addresses (`FYISP_LISTEN=0.0.0.0:3000`), so the dashboard is reachable from your network, behind the token.
-- **This machine only:** add `--listen=127.0.0.1:3000` after the image name.
-- **By name:** to open it as `http://nas.local:3000` or a Tailscale MagicDNS name, add `--allow-host nas.local` after the image name. Otherwise fyisp answers *421 unknown host* (a guard against DNS rebinding).
-- **Doesn't load:** `docker logs fyisp` says why.
-
-**Stop:** `docker stop fyisp`. **Update:** see [Upgrading](#upgrading). **Remove:** `docker rm -f fyisp && docker volume rm fyisp`.
-
-<details>
-<summary>Docker's default network, Docker Desktop, and the image</summary>
-
-**Bridge network.** With Docker's default bridge network (`-p 3000:3000` instead of `--network host`), the container's gateway is Docker's bridge (`172.17.0.1`), not your home router. fyisp then measures the bridge as your router (always fine), and a Wi-Fi or router problem shows up one step too far out, as your provider or the wider internet. The charts are still right. To use it anyway, publish on this machine only with `-p 127.0.0.1:3000:3000`.
-
-**Docker Desktop (macOS, Windows)** runs containers inside a Linux VM: the gateway is the VM's virtual network and `--network host` means the VM's network, not your Mac's or PC's. The router and provider verdicts aren't about your real network there, so on macOS and Windows use the launcher instead.
-
-**The image** is published for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. It runs as an unprivileged user (65532) from a `scratch` image, keeps its data in the `/data` volume, and sets `FYISP_DATA_DIR=/data` and `FYISP_LISTEN=0.0.0.0:3000` (`--data-dir` and `--listen` after the image name override them). With a bridge network, ICMP works without extra capabilities on Docker 20.10+. With `--network host`, the host's `net.ipv4.ping_group_range` applies: if the log says ICMP is unavailable, see [ICMP permissions](#icmp-permissions).
-
-</details>
-
-### On a server (datacenter or office)
-
-To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker and every target of the catalog:
-
-```sh
-(umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
-IMAGE=ghcr.io/glueops/fyisp:v0.17.0 # x-release-please-version
-FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
-  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
-```
-
-- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
-- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
-- **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
-- **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
-- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). To upgrade, see [Upgrading](#upgrading): it picks the latest tag, replaces the container and keeps the token and data; upgrade all sites together.
-- **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
-- **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
-
-<details>
-<summary>Without Docker: systemd</summary>
-
-Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token, the catalog and the path survey with a drop-in:
-
-```sh
-sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
-sudo mkdir -p /etc/systemd/system/fyisp.service.d
-printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' \
-  | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
-sudo systemctl daemon-reload && sudo systemctl restart fyisp
-```
-
-The unit already listens on `127.0.0.1:3000` only. The token is `sudo sed -n 's/^FYISP_ADMIN_TOKEN=//p' /etc/fyisp.env`. Export with `sudo fyisp export --data-dir /var/lib/fyisp …`.
-
-</details>
 
 ### Check before you run
 
@@ -234,7 +178,7 @@ Each round stops after 5 silent hops in a row past the last one that answered (l
 
 fyisp can only tell you about time when it was running. Started from a terminal or the launcher, it stops when you close that window or log out, and Home shows that time as grey bars, and as hatched bands in a tile's chart: *fyisp wasn't running*. To have it start by itself, install the binary once and register it with your system, as below. It then runs in the background whenever you're logged in (or, on Linux and Docker, whenever the machine is on) and you open <http://127.0.0.1:3000> and sign in (see [Admin token](#admin-token)).
 
-A laptop that sleeps still leaves gaps; that's expected and never counted as a problem. For a complete record, run fyisp on something that is always on and on the same network: a NAS, a Raspberry Pi or a home server, with [Docker](#docker) or [systemd](#linux-systemd).
+A laptop that sleeps still leaves gaps; that's expected and never counted as a problem. For a complete record, run fyisp on something that is always on and on the same network: a NAS, a Raspberry Pi or a home server, with [Docker](#docker-nas-and-raspberry-pi) or [systemd](#linux-systemd).
 
 ### macOS (LaunchAgent)
 
@@ -307,7 +251,36 @@ fyisp now runs whenever the machine is on, from boot. [`packaging/fyisp.service`
 
 ### Docker, NAS and Raspberry Pi
 
-The [Docker command](#docker) above already uses `--restart unless-stopped`: the container comes back after a reboot as long as Docker itself starts at boot (the default on Linux; on Docker Desktop, turn on *Start Docker Desktop when you sign in*).
+On Linux, run the container on the host's network, so that fyisp sees your real home router, and with your own admin token, so that a restart doesn't sign you out:
+
+```sh
+(umask 077; openssl rand -hex 16 > fyisp-token)   # your admin token, readable by you only
+FYISP_ADMIN_TOKEN="$(cat fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
+echo "http://127.0.0.1:3000/#admin=$(cat fyisp-token)"
+```
+
+Open the link the last command prints.
+
+- **From another machine:** replace `127.0.0.1` with the Docker host's address, e.g. `http://192.168.1.10:3000/#admin=…`. The image listens on all addresses (`FYISP_LISTEN=0.0.0.0:3000`), so the dashboard is reachable from your network, behind the token.
+- **This machine only:** add `--listen=127.0.0.1:3000` after the image name.
+- **By name:** to open it as `http://nas.local:3000` or a Tailscale MagicDNS name, add `--allow-host nas.local` after the image name. Otherwise fyisp answers *421 unknown host* (a guard against DNS rebinding).
+- **Doesn't load:** `docker logs fyisp` says why.
+
+**Stop:** `docker stop fyisp`. **Update:** see [Upgrading](#upgrading). **Remove:** `docker rm -f fyisp && docker volume rm fyisp`.
+
+The command's `--restart unless-stopped` brings the container back after a reboot, as long as Docker itself starts at boot (the default on Linux; on Docker Desktop, turn on *Start Docker Desktop when you sign in*).
+
+<details>
+<summary>Docker's default network, Docker Desktop, and the image</summary>
+
+**Bridge network.** With Docker's default bridge network (`-p 3000:3000` instead of `--network host`), the container's gateway is Docker's bridge (`172.17.0.1`), not your home router. fyisp then measures the bridge as your router (always fine), and a Wi-Fi or router problem shows up one step too far out, as your provider or the wider internet. The charts are still right. To use it anyway, publish on this machine only with `-p 127.0.0.1:3000:3000`.
+
+**Docker Desktop (macOS, Windows)** runs containers inside a Linux VM: the gateway is the VM's virtual network and `--network host` means the VM's network, not your Mac's or PC's. The router and provider verdicts aren't about your real network there, so on macOS and Windows use the launcher instead.
+
+**The image** is published for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. It runs as an unprivileged user (65532) from a `scratch` image, keeps its data in the `/data` volume, and sets `FYISP_DATA_DIR=/data` and `FYISP_LISTEN=0.0.0.0:3000` (`--data-dir` and `--listen` after the image name override them). With a bridge network, ICMP works without extra capabilities on Docker 20.10+. With `--network host`, the host's `net.ipv4.ping_group_range` applies: if the log says ICMP is unavailable, see [ICMP permissions](#icmp-permissions).
+
+</details>
 
 ## Call quality
 
@@ -492,6 +465,43 @@ To uninstall, stop fyisp, then delete its data directory and the binary. The lau
 - **Windows:** `Remove-Item -Recurse "$env:LOCALAPPDATA\fyisp"`.
 - **Docker:** `docker rm -f fyisp && docker volume rm fyisp`.
 - **systemd:** `sudo systemctl disable --now fyisp && sudo rm /etc/systemd/system/fyisp.service /usr/local/bin/fyisp && sudo rm -rf /etc/systemd/system/fyisp.service.d /var/lib/private/fyisp /etc/fyisp.env`.
+
+## On a server (datacenter or office)
+
+To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker, with everything on that a server needs: every target of the catalog (`--profile all`, about 1,400) and the path survey (`--path-survey`: a TCP traceroute to every target every 15 minutes, kept hour by hour with the address each target resolved to, to tell GeoDNS, anycast, routing and congestion apart):
+
+```sh
+(umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
+IMAGE=ghcr.io/glueops/fyisp:v0.17.0 # x-release-please-version
+FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+```
+
+- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. fyisp checks the port in the address you open, so forwarding another local port to 3000 gets *421 unknown host*: to open two servers at once, run the second with `--listen=127.0.0.1:3001` (recreate its container if it already runs) and forward `3001:127.0.0.1:3001`.
+- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
+- **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
+- **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
+- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). To upgrade, see [Upgrading](#upgrading): it picks the latest tag, replaces the container and keeps the token and data; upgrade all sites together.
+- **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
+- **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
+
+<details>
+<summary>Without Docker: systemd</summary>
+
+Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token, the catalog and the path survey with a drop-in:
+
+```sh
+sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
+sudo mkdir -p /etc/systemd/system/fyisp.service.d
+printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' 'Environment=FYISP_PATH_SURVEY=1' \
+  | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart fyisp
+```
+
+The unit already listens on `127.0.0.1:3000` only. The token is `sudo sed -n 's/^FYISP_ADMIN_TOKEN=//p' /etc/fyisp.env`. Export with `sudo fyisp export --data-dir /var/lib/fyisp …`.
+
+</details>
 
 ## Building from source
 
