@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.4](https://github.com/GlueOps/fyisp/compare/v0.18.3...v0.18.4) (2026-11-22)
+
+
+### Bug Fixes
+
+* **trace:** let the cap's gaps not end a survey silent run ([#172](https://github.com/GlueOps/fyisp/issues/172)) ([b6f9dac](https://github.com/GlueOps/fyisp/commit/b6f9dacab18483caf3487165b1ab2b1ec598828e))
+
 ## [0.18.3](https://github.com/GlueOps/fyisp/compare/v0.18.2...v0.18.3) (2026-11-22)
 
 
