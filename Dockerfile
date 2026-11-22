@@ -10,12 +10,15 @@
 #   docker build -t fyisp .                                         # runtime image (default target)
 #   docker build --target imagetest .                               # runtime image smoke test (--ephemeral)
 #   docker build --target livetest -t fyisp-livetest .              # live --tunnel tests: see internal/tunnel/live_test.go
+#   docker build --target skilltest .                              # compare-sites skill: tests, pinned image and version
 #   docker build --target s3lab .                                  # storage engine vs RustFS and Garage (s3lab-full: and MinIO)
 
 ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
 # The browser image for the UI tests; its Playwright must match test/ui/package.json.
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
 ARG DEBIAN_IMAGE=debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+# The compare-sites skill runs in this image; run.sh pins the same one (skilltest checks it).
+ARG PYTHON_IMAGE=python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS base
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
@@ -216,6 +219,15 @@ COPY packaging/fyisp.service /etc/systemd/system/fyisp.service
 RUN out=$(systemd-analyze verify /etc/systemd/system/fyisp.service 2>&1); echo "$out"; \
     ! echo "$out" | grep -v -e 'Failed to .* bus' -e 'System has not been booted' -e '^$' | grep . && \
     ! grep -n '^ProcSubset=' /etc/systemd/system/fyisp.service
+
+# The compare-sites agent skill (.claude/skills/compare-sites): its tests, and
+# that run.sh pins this file's PYTHON_IMAGE and the current release.
+FROM ${PYTHON_IMAGE} AS skilltest
+ARG PYTHON_IMAGE
+COPY .claude/skills/compare-sites /skill
+COPY .release-please-manifest.json /skill/manifest.json
+RUN cd /skill && WANT_IMAGE="${PYTHON_IMAGE}" RELEASE_MANIFEST=manifest.json \
+    python3 -I -W error::ResourceWarning scripts/test_compare_sites.py
 
 # UI tests: Playwright against fyisp-webdev (fake probes, real API), all in
 # one container, so it works with Docker-outside-of-Docker. Separate from

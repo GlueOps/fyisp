@@ -6,10 +6,12 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/glueops/fyisp/internal/export"
 	"github.com/glueops/fyisp/internal/model"
 	"github.com/glueops/fyisp/internal/store"
 )
@@ -250,5 +252,18 @@ func TestCompareTooLarge(t *testing.T) {
 	compareMaxBytes = 1 << 20
 	if code, _ := get("/api/compare.csv?" + rng); code != 200 {
 		t.Errorf("after 413: %d", code)
+	}
+}
+
+// The compare-sites skill parses these CSVs; its header fixture must follow
+// any column change (update .claude/skills/compare-sites/scripts/testdata/headers.txt).
+func TestCompareSitesSkillHeaders(t *testing.T) {
+	b, err := os.ReadFile("../../.claude/skills/compare-sites/scripts/testdata/headers.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "compare: " + strings.Join(CompareHeader, ",") + "\nsurvey: " + strings.Join(export.SurveyHeader, ",") + "\n"
+	if string(b) != want {
+		t.Errorf("headers.txt is\n%s\nwant\n%s", b, want)
 	}
 }

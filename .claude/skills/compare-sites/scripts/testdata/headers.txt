@@ -1,0 +1,2 @@
+compare: site,hour,target,kind,provider,city,country,geo,tags,n,lost,loss,min_ms,p50_ms,p95_ms,max_ms,mean_ms,complete,dest_ips,as_path,survey_rounds,survey_reached
+survey: hour,target,host,port,dest_ip,hops_via,rounds,fixed_flow,reached,complete,ttl,status,ip,asn,owner,rdns,n,min_ms,mean_ms,max_ms

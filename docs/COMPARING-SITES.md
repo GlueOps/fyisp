@@ -2,6 +2,39 @@
 
 fyisp at two sites (two datacenters, two offices, two providers) tells you where each one is slower; with `--path-survey` it also keeps what you need to tell **why**. Back to the [README](../README.md).
 
+## With an AI agent
+
+The repository ships an agent skill, [`.claude/skills/compare-sites`](../.claude/skills/compare-sites/SKILL.md), that does the whole comparison: it fetches `api/status`, `api/compare.csv` and `api/survey.csv` from two sites, finds which site is slower to which targets and why (the causes [below](#telling-the-causes-apart)), and writes `report.md` (internal: it lists routers and their addresses) and `share-summary.md` (networks by number and owner only, to forward). Its script runs in a locked-down Docker container (no capabilities, read-only, as `nobody`), so the machine that runs it needs Docker and nothing else, and it reaches the sites only over their HTTP API with the admin token.
+
+1. **Prepare the sites.** Each runs the same release with the README's [server command](../README.md#on-a-server-datacenter-or-office) (`--path-survey`, its own `--site`), for a day or more if you want time-of-day patterns. To open two sites from one machine, each needs its own local address or port (see the server section's note on *421 unknown host*).
+2. **Save the sign-in links** in `~/.config/fyisp/sites`, one `name=<link>` per line, readable by you only. To keep the tokens out of the agent's session, write the file yourself, e.g. for a server reached over an SSH forward to port 3001:
+
+   ```sh
+   mkdir -p -m 700 ~/.config/fyisp
+   (umask 077; printf 'site-b=http://127.0.0.1:3001/#admin=%s\n' "$(ssh site-b cat .fyisp-token)" >> ~/.config/fyisp/sites)
+   ```
+
+   A link may use plain `http://` only to this machine (an SSH forward), or, followed by ` http-ok`, to an address on a network you trust (a VPN, Tailscale); otherwise use the `--tunnel` link (`https://…`). You can also paste a link into the session: the skill saves it, and then it is in the session's transcript and logs (restarting fyisp with a new token signs everyone out).
+3. **Run it** from your own directory (the reports go to `./fyisp-reports/`, which must not be committed: run.sh refuses a git repository that doesn't ignore it; this repository does): in Claude Code, open a clone of this repository, or copy the skill folder into your own project's `.claude/skills/` (or `~/.claude/skills/`), and type `/compare-sites site-a site-b 24h` (or a UTC window: `2026-11-22T00:00Z..2026-11-22T12:00Z`, up to 24 hours). The skill starts only when you ask for it.
+
+The script can also run without an agent: `.claude/skills/compare-sites/scripts/run.sh compare site-a site-b 24h`, then `run.sh fill <folder>` with the narrative sections on stdin, or read the tables as they are.
+
+**Where it runs.** Its container uses the Docker host's network: on Docker Desktop (macOS, Windows), turn on host networking (Settings → Resources → Network, Docker Desktop 4.34 or newer) to reach an SSH forward on your machine; in a devcontainer that talks to the host's Docker, open SSH forwards on the Docker host, or use the sites' `--tunnel` links. Each run fetches for at most 9 minutes; if that isn't enough, it says so and `run.sh resume <folder>` fetches the rest.
+
+**What it says when it stops.** Each message names the site, what happened and what to do:
+
+| Message | What to do |
+|---|---|
+| *not in the sites file* | Add the site's link (step 2). |
+| *the admin token was refused* | The token changed (a restart without `FYISP_ADMIN_TOKEN` makes a new one): save the current link. |
+| *fyisp only answers at its own address and port* | The forward's local port differs from fyisp's (421): forward the same port, or run each site on its own. |
+| *connection refused … from inside Docker* | The forward or tunnel isn't reachable from the container: see *Where it runs*. |
+| *the share link's tunnel is down or expired* | The `--tunnel` name changes when fyisp restarts its tunnel: take the newest from the log. |
+| *plain http … sends the admin token unencrypted* | Use an SSH forward or the tunnel link, or mark a trusted network with ` http-ok`. |
+| *this server has no comparison API* | Upgrade that site. |
+
+The report starts with *Data quality*: different releases or profiles, a survey still on its first pass or off, clocks apart by more than a minute, targets with too few hours, and paths the survey is less sure of (changing flows).
+
 ## What to run
 
 At every site, the same fyisp release with the same profile, and `--path-survey` on. The README's [server command](../README.md#on-a-server-datacenter-or-office) does that with Docker, `--profile all` and `--path-survey`, on a pinned release.

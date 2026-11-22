@@ -6,3 +6,4 @@ dist
 test/ui/node_modules
 test/ui/out
 .claude
+!.claude/skills

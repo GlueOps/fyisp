@@ -2,3 +2,5 @@
 *.golden text eol=lf
 # Test fixtures compared byte for byte; keep LF on Windows checkouts.
 **/testdata/**/*.json text eol=lf
+# Shell scripts must keep LF to run.
+*.sh text eol=lf

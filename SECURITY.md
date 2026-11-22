@@ -225,7 +225,7 @@ measure; traceroute rows give the hop number, not its address; `--survey`
 lists the routers past your provider with their addresses, never one in your
 own network or your provider's, and `--addrs` what your targets resolved to;
 `api/compare.csv`, `api/survey.csv` and `api/addrs.csv` serve the same data
-to the admin token's holder, for comparing sites). Every
+to the admin token's holder, for comparing sites; the compare-sites agent skill's `report.md` lists routers and their addresses, its `share-summary.md` only networks). Every
 route but the page needs the admin token, wherever the dashboard is reached
 from: 127.0.0.1, your network, a reverse proxy or a tunnel. If you put a
 tunnel or reverse proxy in front of the dashboard (cloudflared, Tailscale
