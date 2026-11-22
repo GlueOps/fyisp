@@ -163,8 +163,10 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 		{"one lost answer", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3"}, 0, 2, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:62.3.3.3", "4:198.51.100.1"}, 1, 1},
 		{"silent routers", []string{"62.1.1.1", "", "", "62.4.4.4"}, 0, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 1, 1},
 		{"silent routers before nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5", "62.6.6.6"}, 6, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:62.6.6.6", "7:198.51.100.1"}, 0, 1},
-		// a silent destination: its silent tail is asked again once (2 more SYNs), not once per pair
+		// a silent destination: its silent tail is asked again twice at most (4 more SYNs)
 		{"silent destination", []string{"62.1.1.1", "62.2.2.2"}, 0, 0, 0, nil, 1, 0},
+		{"two silent routers past nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5"}, 2, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:198.51.100.1"}, 0, 1},
+		{"silent pair right before nat", []string{"62.1.1.1", "", "", "62.4.4.4", "62.5.5.5", "62.6.6.6"}, 4, 0, 0, []string{"1:62.1.1.1", "2:invalid IP", "3:invalid IP", "4:62.4.4.4", "5:62.5.5.5", "6:62.6.6.6", "7:198.51.100.1"}, 0, 1},
 		// TTL 3 is left out (its bucket isn't full): TTLs 2 and 4 are no silent run, and TTL 3 isn't probed
 		{"capped ttl between", []string{"62.1.1.1", "62.2.2.2", "62.3.3.3", "62.4.4.4"}, 2, 0, 3, []string{"1:62.1.1.1", "2:invalid IP", "4:62.4.4.4", "5:198.51.100.1"}, 0, 1},
 	} {
@@ -194,8 +196,8 @@ func TestSurveyFlowBehindNAT(t *testing.T) {
 					t.Errorf("hops %v fixed %d reached %d, want %v fixed %d reached %d", got, p.Fixed, p.Reached, c.want, c.fixed, c.reached)
 				}
 				if c.name == "silent destination" {
-					if n := len(f.log); n != 2+maxUnknown+2 {
-						t.Errorf("%d probes, want %d (2 routers, %d silent TTLs, 2 retries)", n, 2+maxUnknown+2, maxUnknown)
+					if n := len(f.log); n != 2+maxUnknown+4 {
+						t.Errorf("%d probes, want %d (2 routers, %d silent TTLs, 2 retries of 2)", n, 2+maxUnknown+4, maxUnknown)
 					}
 				}
 				if c.busyTTL > 0 {

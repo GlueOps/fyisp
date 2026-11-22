@@ -296,9 +296,8 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		complete = true
 		reached  = false
 		unknown  = 0
-		last     = 0 // highest TTL that answered
-		retries  = 0 // silent runs asked again from fresh ports (at most surveyRetries)
-		asked    = false
+		last     = 0       // highest TTL that answered
+		retries  = 0       // silent runs asked again from fresh ports (at most surveyRetries)
 		prevK    *limitKey // the previous TTL's key when its fixed-flow probe was silent
 	)
 	// fresh asks ttl from a fresh port once k's bucket is full again (a
@@ -366,12 +365,12 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 		// from fresh ports; when one answers, this round goes on from fresh
 		// ports. One lost answer (a router's rate limit) keeps the flow.
 		silent := err == nil && fixed && !heard(h)
-		if silent && prevK != nil && !asked && retries < surveyRetries && tp != nil {
+		retry := silent && prevK != nil && retries < surveyRetries && tp != nil
+		if retry {
 			hp, kp, okp := fresh(ttl-1, *prevK)
 			hc, kc, okc := fresh(ttl, k)
 			if okp || okc {
 				retries++
-				asked = true // the next retry needs an answer in between: not twice in one silent run
 			}
 			if okp && heard(hp) || okc && heard(hc) {
 				fixed = false
@@ -388,11 +387,8 @@ func (tr *tracer) surveyRound(ctx context.Context, sv *Survey, t *surveyTarget) 
 				}
 			}
 		}
-		if heard(h) {
-			asked = false
-		}
 		prevK = nil
-		if silent && fixed {
+		if silent && fixed && !retry { // after a retry, the next one needs two more silent TTLs
 			kk := k
 			prevK = &kk
 		}
