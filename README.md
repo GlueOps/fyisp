@@ -124,7 +124,7 @@ FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" docker run -d --name fyisp --restart u
 - **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.fyisp-token)") http://127.0.0.1:3000/api/status` (the token stays out of the process list) shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
 - **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
 - **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
-- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). Upgrade all sites together: `docker rm -f fyisp`, then the `IMAGE=` line with the new tag and the `docker run` line again, not the token line (the volume keeps your data).
+- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). To upgrade, see [Upgrading](#upgrading): it picks the latest tag, replaces the container and keeps the token and data; upgrade all sites together.
 - **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
 - **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
 
@@ -391,20 +391,67 @@ Everything fyisp serves except the page itself needs the admin token: the dashbo
 
 ## Upgrading
 
-- **Launcher (`run.sh`, `run.ps1`):** stop fyisp and run the same command again. It always fetches the latest release.
-- **Docker:** pull the image and recreate the container; the volume keeps your data (on a server, change the `IMAGE` tag instead of pulling):
+fyisp does not update itself. The latest release is on the [releases page](https://github.com/glueops/fyisp/releases/latest); to see which one runs: `docker exec fyisp /fyisp version` (Docker), `fyisp version` (Linux, `~/.local/bin/fyisp version` on macOS, `& "$env:LOCALAPPDATA\Programs\fyisp\fyisp.exe" version` on Windows), or `version` in `api/status`. Each way below keeps your data, and your admin token where you set your own (the Docker commands, the macOS and Windows tasks, systemd with `/etc/fyisp.env`); otherwise a restart makes a new one.
 
-  ```sh
-  docker pull ghcr.io/glueops/fyisp
-  docker rm -f fyisp
-  ```
+**Launcher (`run.sh`, `run.ps1`).** Stop fyisp (Ctrl-C) and run the same command again: it always fetches the latest release. It makes a new admin token unless you pass your own with `--admin-token`.
 
-  Then run the same `docker run` command as before (see [Docker](#docker)), with the same options and token.
-- **Installed binary** ([Keep it running](#keep-it-running)): download the new `fyisp-<os>-<arch>`, verify it, replace the old file and restart the service.
+**Docker at home.** From the directory that holds `fyisp-token`: pull the latest image and, only once that worked, replace the container (the volume keeps your data):
+
+```sh
+tok=$(cat fyisp-token) && docker pull ghcr.io/glueops/fyisp && docker rm -f fyisp && \
+FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  -e FYISP_ADMIN_TOKEN ghcr.io/glueops/fyisp
+```
+
+Add any options you started it with after the image name, as before.
+
+**Docker on a server** (the [server command](#on-a-server-datacenter-or-office)). Pick the latest release's tag, pull it, then replace the container:
+
+```sh
+IMAGE=ghcr.io/glueops/fyisp:$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/glueops/fyisp/releases/latest | sed 's#.*/##')
+tok=$(cat ~/.fyisp-token) && echo "$IMAGE" && docker pull "$IMAGE" && docker rm -f fyisp && \
+FYISP_ADMIN_TOKEN="$tok" docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -e FYISP_ADMIN_TOKEN "$IMAGE" --listen=127.0.0.1:3000 --profile all --path-survey
+```
+
+Keep the options you started it with (a second server's `--listen=127.0.0.1:3001`, `--speedtest`, `--retention`). To compare sites, upgrade every site to the same tag, the same day.
+
+**Linux (systemd).** Download and check the new binary, replace the old one and restart:
+
+```sh
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-linux-amd64   # or -arm64, -armv7
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing && sudo install -m 0755 fyisp-linux-amd64 /usr/local/bin/fyisp && sudo systemctl restart fyisp
+```
+
+**macOS (LaunchAgent).** The same download as in [Keep it running](#macos-launchagent), without writing a new plist (which would make a new token), then a restart:
+
+```sh
+cd ~/.local/bin
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/fyisp-darwin-arm64   # or -amd64 on an Intel Mac
+curl -fsSLO https://github.com/glueops/fyisp/releases/latest/download/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing && mv fyisp-darwin-arm64 fyisp && chmod +x fyisp && \
+launchctl kickstart -k gui/$(id -u)/io.github.glueops.fyisp
+```
+
+**Windows (Task Scheduler).** Download and check the new binary next to the old one, stop fyisp (Windows locks a running `fyisp.exe`), swap them and start it again:
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\fyisp"
+$url = "https://github.com/glueops/fyisp/releases/latest/download"
+Invoke-WebRequest "$url/fyisp-windows-amd64.exe" -OutFile "$dir\fyisp.new.exe"
+Invoke-WebRequest "$url/SHA256SUMS" -OutFile "$dir\SHA256SUMS"
+$want = (Select-String -Path "$dir\SHA256SUMS" -Pattern 'fyisp-windows-amd64\.exe$').Line.Split(' ')[0]
+if ((Get-FileHash "$dir\fyisp.new.exe").Hash -ne $want) { Remove-Item "$dir\fyisp.new.exe"; throw "checksum mismatch" }
+Stop-ScheduledTask -TaskName fyisp; Stop-Process -Name fyisp -ErrorAction SilentlyContinue; Start-Sleep 2
+Move-Item -Force "$dir\fyisp.new.exe" "$dir\fyisp.exe"
+Start-ScheduledTask -TaskName fyisp
+```
+
+(On an ARM PC, use `fyisp-windows-arm64.exe` in both places.)
 
 Upgrading keeps your history. When a release changes the database format, its first start upgrades the database in place and logs `store: database upgraded from schema vN to vM`. A database from before v0.11.0 is the exception: it is replaced with an empty one, and fyisp logs `store: database from an older fyisp (schema vN) replaced with a new empty one`. Going back to an older release never wipes data: fyisp refuses a database from a newer version and leaves it untouched. fyisp makes no backups of its database; to keep one, stop fyisp and copy `fyisp.db`, and `storage-targets.json` if you saved storage targets (`fyisp paths` shows where they are).
-
-fyisp does not update itself: run the launcher from a newer release, or replace the binary.
 
 ## Prometheus metrics
 
