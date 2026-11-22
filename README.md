@@ -13,7 +13,7 @@ fyisp is one small program. The default makes 28 checks for homes and remote wor
 
 ## Quick start
 
-Nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it.
+For your home connection or a laptop, nothing to install: a launcher downloads fyisp, checks it against the release's published checksum, and runs it until you stop it, measuring the default's 28 everyday services. To measure a server's connection or compare datacenters, see [On a server](#on-a-server-datacenter-or-office).
 
 ### Linux and macOS
 
@@ -33,7 +33,7 @@ Open **PowerShell** (not Command Prompt) and paste:
 
 On a NAS, a Raspberry Pi or a home server, use [Docker](#docker). To read the launcher or check the download yourself first, see [Check before you run](#check-before-you-run).
 
-> **On a work laptop**, fyisp looks up each service's name about once a minute through your employer's DNS resolver, YouTube and Netflix included, and its path survey sends traceroutes that security tools may log. See [Privacy](#privacy) to leave those out (and `--path-survey=false`), or run fyisp on a home machine on the same network.
+> **On a work laptop**, read [Privacy](#privacy) first: your employer's network sees fyisp's name lookups (YouTube and Netflix included) and traceroutes.
 
 ### What happens next
 
@@ -73,8 +73,8 @@ curl --proto '=https' --tlsv1.2 -fsSL https://github.com/glueops/fyisp/releases/
 | `--profile NAMES` | What to measure, instead of the default. Combine profiles with commas to keep the default's checks, e.g. `default,streaming` or `default,clouds`; `all` is every target (about 1,400). `fyisp profiles` lists them ([What to measure](docs/PROFILES.md)). |
 | `--speedtest` | Turns on scheduled speed tests, each of 15 regions once an hour. On a 100 Mbit/s line that is about 1.1 to 3 TB a month: leave it off on a metered or capped connection ([Speed tests](#speed-tests)). **Test speed now** on Home runs one test without it. |
 | `--listen 127.0.0.1:8080` | Another port. `0.0.0.0:<port>` opens the dashboard to your network, behind the [admin token](#admin-token). |
-| `--retention 30d` | Keeps less history (the default is 90 days). Worth it with `--profile all`, which takes a lot of disk. |
-| `--path-survey=false` | Turns off the path survey, which is on by default: it traces the TCP path to every target every 15 minutes and keeps it hour by hour, to compare this site with another ([Comparing sites](docs/COMPARING-SITES.md)), and keeps the address each target resolved to. With the default profile that is about 1 probe every 2 seconds and tens of MB over 90 days; with `--profile all`, about 25 probes a second and roughly 1 to 4 GB. In Docker or systemd, `FYISP_PATH_SURVEY=0` does the same. |
+| `--retention 30d` | Keeps less history, and so less disk (the default is 90 days). |
+| `--path-survey=false` | Turns off the path survey (on by default): a TCP traceroute to every target every 15 minutes, kept hour by hour, for [comparing sites](docs/COMPARING-SITES.md). With the default profile it is about 1 probe every 2 seconds. `FYISP_PATH_SURVEY=0` in Docker or systemd. |
 | `--admin-token TOKEN` | Your own sign-in token, kept across restarts (otherwise each start makes a new one); see [Admin token](#admin-token). |
 
 ### Docker
@@ -105,6 +105,43 @@ Open the link the last command prints.
 **Docker Desktop (macOS, Windows)** runs containers inside a Linux VM: the gateway is the VM's virtual network and `--network host` means the VM's network, not your Mac's or PC's. The router and provider verdicts aren't about your real network there, so on macOS and Windows use the launcher instead.
 
 **The image** is published for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. It runs as an unprivileged user (65532) from a `scratch` image, keeps its data in the `/data` volume, and sets `FYISP_DATA_DIR=/data` and `FYISP_LISTEN=0.0.0.0:3000` (`--data-dir` and `--listen` after the image name override them). With a bridge network, ICMP works without extra capabilities on Docker 20.10+. With `--network host`, the host's `net.ipv4.ping_group_range` applies: if the log says ICMP is unavailable, see [ICMP permissions](#icmp-permissions).
+
+</details>
+
+### On a server (datacenter or office)
+
+To measure a server's connection, or to [compare sites](docs/COMPARING-SITES.md) (two datacenters, two offices, two providers), run fyisp on each Linux server with Docker and every target of the catalog:
+
+```sh
+(umask 077; openssl rand -hex 16 > ~/.fyisp-token)   # your admin token, readable by you only
+IMAGE=ghcr.io/glueops/fyisp:v0.16.0 # x-release-please-version
+docker run -d --name fyisp --restart unless-stopped --network host -v fyisp:/data \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -e FYISP_ADMIN_TOKEN="$(cat ~/.fyisp-token)" "$IMAGE" --listen=127.0.0.1:3000 --profile all
+```
+
+- **Open the dashboard** from your laptop over SSH: `ssh -L 3000:127.0.0.1:3000 <server>`, then `http://127.0.0.1:3000/#admin=<token>` (the token is in `~/.fyisp-token` on the server). `--listen=127.0.0.1:3000` keeps the dashboard off the server's public address: without it the image listens on every address, over plain HTTP. To open two servers at once, start the second with `--listen=127.0.0.1:3001` and forward `3001:127.0.0.1:3001`: fyisp answers only on the port it listens on.
+- **Check it:** `docker logs fyisp` shows a `path survey` line with the number of targets (about 1,400), and `curl -s -H "Authorization: Bearer $(cat ~/.fyisp-token)" http://127.0.0.1:3000/api/status` shows `"survey"` with `"state": "first_pass"`, then `"on"` after about 15 minutes. `unavailable` means no ICMP socket: see [ICMP permissions](#icmp-permissions).
+- **What it sends:** a TCP connect to each of about 1,400 targets every 15 seconds, and the [path survey](docs/COMPARING-SITES.md)'s TCP traceroutes, about 25 probes a second. Networks that watch for scans may send your hosting provider an abuse report; [OPERATORS.md](docs/OPERATORS.md) says what they see.
+- **Disk:** 90 days of history (the default), the path survey's 1 to 4 GB of it. Check the volume after the first days (`docker system df -v`); `--retention 30d` keeps less.
+- **Every site the same:** run the same release (the `IMAGE` tag) and keep the clock synchronized (`timedatectl` says `System clock synchronized: yes`). Upgrade all sites together: change the tag and run the commands again ([Upgrading](#upgrading)).
+- **Speed tests stay off:** they fill the line (terabytes a month on a fast one) and use other people's iperf3 servers; add `--speedtest` only after reading [Speed tests](#speed-tests).
+- **Comparing sites:** export the same time window from each and run the script in [Comparing sites](docs/COMPARING-SITES.md).
+
+<details>
+<summary>Without Docker: systemd</summary>
+
+Install fyisp as in [Linux (systemd)](#linux-systemd), then give it a token and the catalog with a drop-in:
+
+```sh
+sudo sh -c 'umask 077; echo FYISP_ADMIN_TOKEN=$(openssl rand -hex 16) > /etc/fyisp.env'
+sudo mkdir -p /etc/systemd/system/fyisp.service.d
+printf '%s\n' '[Service]' 'EnvironmentFile=/etc/fyisp.env' 'Environment=FYISP_PROFILE=all' \
+  | sudo tee /etc/systemd/system/fyisp.service.d/server.conf >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart fyisp
+```
+
+The unit already listens on `127.0.0.1:3000` only. The token is `sudo sed -n 's/^FYISP_ADMIN_TOKEN=//p' /etc/fyisp.env`. Export with `sudo fyisp export --data-dir /var/lib/fyisp …`.
 
 </details>
 
@@ -355,7 +392,7 @@ Everything fyisp serves except the page itself needs the admin token: the dashbo
 ## Upgrading
 
 - **Launcher (`run.sh`, `run.ps1`):** stop fyisp and run the same command again. It always fetches the latest release.
-- **Docker:** pull the image and recreate the container; the volume keeps your data:
+- **Docker:** pull the image and recreate the container; the volume keeps your data (on a server, change the `IMAGE` tag instead of pulling):
 
   ```sh
   docker pull ghcr.io/glueops/fyisp

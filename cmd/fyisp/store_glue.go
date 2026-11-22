@@ -78,7 +78,7 @@ func setLockURL(st *store.SQLite, url string) { st.SetURL(url) }
 // fyisp runs; only data saved so far, at most a minute old, is visible).
 func cmdExport(args []string) int {
 	fs := flag.NewFlagSet("fyisp export", flag.ContinueOnError)
-	dataDir := fs.String("data-dir", "", "data directory (default: per-OS state directory)")
+	dataDir := fs.String("data-dir", "", "data directory (default: $FYISP_DATA_DIR, else the per-OS state directory)")
 	opts := export.Flags(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2

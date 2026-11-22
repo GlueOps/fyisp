@@ -67,7 +67,7 @@ docker run ... -e FYISP_PROFILE=default,streaming ghcr.io/glueops/fyisp
 
 Home's 11 tiles stay the same whatever you measure (see [Which apps are measured](#which-apps-are-measured)); targets of other profiles show under Technical details and count toward the [verdicts](VERDICTS.md#whose-fault-is-it-verdicts). Target names are identities (a name keeps its history), so a target in several profiles is one series.
 
-There is no limit on the number of targets; you can run every profile at once (`--profile all`). Large profiles open Details on the [Overview](#the-overview-large-profiles) instead of hundreds of charts.
+There is no limit on the number of targets; you can run every profile at once (`--profile all`, about 1,400 targets). That is a TCP connect to each every 15 seconds, plus the path survey's traceroutes (about 25 probes a second, 1 to 4 GB over 90 days): fine for a server ([On a server](../README.md#on-a-server-datacenter-or-office)), a lot for a home line. Large profiles open Details on the [Overview](#the-overview-large-profiles) instead of hundreds of charts.
 
 Profiles are defined in [`internal/profile/profiles.yml`](../internal/profile/profiles.yml) as selections over the catalog (by provider, provider kind, tag and region); the file documents that format. To change a profile for yourself, use a [`--config` file](#the---config-file).
 

@@ -4,27 +4,26 @@ fyisp at two sites (two datacenters, two offices, two providers) tells you where
 
 ## What to run
 
-At every site, the same fyisp release with the same profile (and the survey not turned off with `--path-survey=false` or `FYISP_PATH_SURVEY=0`):
+At every site, the same fyisp release with the same profile, and the path survey on (the default). The README's [server command](../README.md#on-a-server-datacenter-or-office) does that with Docker and `--profile all`, on a pinned release.
 
-```sh
-fyisp --profile all --retention 30d
-```
-
-The path survey traces the TCP path to every TCP and HTTPS target of the profile every 15 minutes (to the target's own host and port, one TTL at a time) and keeps each target's paths hour by hour: which router answered each TTL, how often and how fast. It is separate from *Investigate* and the always-on traces and doesn't change what they measure. With `--profile all` it adds about 25 probes a second and, over 90 days, roughly 1 to 4 GB of disk, hence the shorter `--retention`. What routers and targets see is in [OPERATORS.md](OPERATORS.md). Both machines need the right time (NTP): the files are matched by UTC time.
+The path survey traces the TCP path to every TCP and HTTPS target of the profile every 15 minutes (to the target's own host and port, one TTL at a time) and keeps each target's paths hour by hour: which router answered each TTL, how often and how fast. It is separate from *Investigate* and the always-on traces and doesn't change what they measure. With `--profile all` it adds about 25 probes a second and, over the default 90 days, roughly 1 to 4 GB of disk. What routers and targets see is in [OPERATORS.md](OPERATORS.md). Both machines need the right time (NTP): the files are matched by UTC time.
 
 `api/status` shows the survey's progress (`survey.state` is `first_pass` until every target has been tried once, about 15 minutes after the start). The survey also keeps the address each target's name resolved to (`--addrs`).
 
 ## What to export
 
-Pick a UTC window and export the same window from every site:
+Pick a UTC window and export the same window from every site. From your laptop, with each server reachable over SSH (here `site-a` and `site-b`, running the server command):
 
 ```sh
-fyisp export --from 2026-12-01T13:00:00Z --to 2026-12-01T17:00:00Z --kind tcp,https -o site-a-latency.csv
-fyisp export --from 2026-12-01T13:00:00Z --to 2026-12-01T17:00:00Z --survey -o site-a-survey.csv
-fyisp export --from 2026-12-01T13:00:00Z --to 2026-12-01T17:00:00Z --addrs -o site-a-addrs.csv
+W="--from 2026-12-01T13:00:00Z --to 2026-12-01T17:00:00Z"
+for s in site-a site-b; do
+  ssh "$s" docker exec fyisp /fyisp export $W --kind tcp,https > "$s-latency.csv"
+  ssh "$s" docker exec fyisp /fyisp export $W --survey > "$s-survey.csv"
+  ssh "$s" docker exec fyisp /fyisp export $W --addrs > "$s-addrs.csv"
+done
 ```
 
-(In Docker: `docker exec fyisp /fyisp export …`.) The formats are in [API.md](API.md#fyisp-export). Name each file after its site: nothing in it says where it came from, and fyisp never stores your public address.
+The files land on your laptop, none on the servers. Don't add `-t` to `docker exec` (it turns line ends into CRLF), and don't use `-o` there: the container can't write to its own working directory. With systemd, the command is `sudo fyisp export --data-dir /var/lib/fyisp $W …`. The formats are in [API.md](API.md#fyisp-export). The files are named after their site because nothing in them says where they came from: fyisp never stores your public address.
 
 ## Telling the causes apart
 
@@ -106,4 +105,4 @@ for k in sorted(la.keys() & lb.keys()):
         w.writerow([k[0], k[1] + ":00Z", round(a, 1), round(b, 1), round(a - b, 1), cause(sa.get(k), sb.get(k))])
 ```
 
-Run it with the four files: `python3 compare.py site-a-latency.csv site-b-latency.csv site-a-survey.csv site-b-survey.csv`.
+Save it as `compare.py` and run it with the four files: `python3 compare.py site-a-latency.csv site-b-latency.csv site-a-survey.csv site-b-survey.csv`. It lists only the hours where the first site is slower: run it again with the sites swapped (`site-b-latency.csv site-a-latency.csv site-b-survey.csv site-a-survey.csv`) for the others.
