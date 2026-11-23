@@ -85,7 +85,7 @@ COPY --from=asndb-gen /out/ip2asn-v4.bin /internal/asn/data/
 # internal/store/upgrade_test.go to the new tag, and delete the old file).
 #   docker buildx build --target dbfixture --output type=local,dest=. .
 FROM base AS dbfixture-gen
-ARG RELEASE=v0.18.3
+ARG RELEASE=v0.19.0
 RUN git clone --depth 1 --branch ${RELEASE} https://github.com/glueops/fyisp /rel
 COPY internal/store/testdata/genfixture/main.go /rel/cmd/genfixture/
 WORKDIR /rel
