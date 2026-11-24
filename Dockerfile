@@ -120,7 +120,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go test -c -tags s3lab -o /s3lab.test ./internal/s3test
 FROM dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020 AS s3lab-garage
-FROM rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b AS s3lab-base
+FROM rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2 AS s3lab-base
 COPY --from=s3lab-garage /garage /usr/local/bin/garage
 COPY --from=s3lab-build /s3lab.test /s3lab.test
 FROM s3lab-base AS s3lab
