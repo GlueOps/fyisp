@@ -13,7 +13,7 @@
 #   docker build --target skilltest .                              # compare-sites skill: tests, pinned image and version
 #   docker build --target s3lab .                                  # storage engine vs RustFS and Garage (s3lab-full: and MinIO)
 
-ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
+ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:ce59b41415e2524ae99926fe1f37ce48ba8c194dcbd2a56a65436cdcefa2bd34
 # The browser image for the UI tests; its Playwright must match test/ui/package.json.
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
 ARG DEBIAN_IMAGE=debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
