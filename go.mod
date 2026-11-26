@@ -21,7 +21,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20260921070245-7a4a4d6beae2
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.0
